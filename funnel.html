@@ -3,9 +3,11 @@
   🧮 Мини-приложение «Калькулятор воронки» для бота @Market_Guru_Uz_Bot (раздел «📈 Воронка продаж»).
   Открывается кнопкой внизу чата. Всё считается прямо в телефоне; боту цифры уходят, только когда человек
   нажимает «Отправить в чат» (Telegram.WebApp.sendData → handlers/funnel.py, on_app_data).
-  Формулы — как в services/funnel.py (scenarios): «+1%» = +1 пункт (6% → 7%), остальные шаги не меняются.
+  Расчёт — как в services/funnel.py (stage_tables): по каждому шагу «если поднять только его на +1/+2/+3%»
+  (+1% = из 100 человек на одного больше: 6% → 7%), остальные шаги — как сейчас.
   Параметры ссылки: ?lang=ru|uz, &price=… (цена из калькулятора прибыли).
-  На странице нет ключей и данных — её можно выкладывать на открытый хостинг (GitHub Pages).
+  На странице нет ключей и данных — она лежит на открытом GitHub Pages (репозиторий market-guru-app).
+  После правок: скопировать этот файл в market-guru-app и отправить (Push) — страница обновится сама.
 -->
 <html lang="ru">
 <head>
@@ -38,19 +40,20 @@
   .field .opt { color: var(--hint); font-weight: 400; font-size: 13px; }
   .result { margin-top: 18px; }
   .now { background: var(--card); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+  .now .s { color: var(--hint); font-size: 13px; }
   .now .big { font-size: 22px; font-weight: 700; }
-  .rate { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; padding: 4px 0; }
-  .rate b { white-space: nowrap; }
-  .chips { display: flex; gap: 8px; margin: 14px 0 10px; }
-  .chip { flex: 1; padding: 10px 0; border-radius: 12px; border: 1.5px solid var(--accent); background: transparent;
-          color: var(--accent); font-size: 16px; font-weight: 700; }
-  .chip.on { background: var(--accent); color: var(--accent-text); }
-  .var { border-radius: 14px; padding: 12px 14px; margin-bottom: 8px; background: var(--card); }
-  .var .t { font-weight: 700; }
-  .var .s { color: var(--hint); font-size: 13px; }
-  .var .plus { color: var(--good); font-size: 20px; font-weight: 800; margin-top: 4px; }
-  .var.best { outline: 2px solid var(--good); }
-  .tip { margin-top: 10px; font-weight: 600; }
+  .explain { color: var(--hint); font-size: 13px; margin: 4px 2px 10px; }
+  .stage { background: var(--card); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
+  .stage.best { outline: 2px solid var(--good); }
+  .stage .head { font-weight: 700; font-size: 17px; }
+  .stage .sub { color: var(--hint); font-size: 13px; margin-bottom: 8px; }
+  .stage table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  .stage th { color: var(--hint); font-weight: 500; font-size: 12px; text-align: right; padding: 2px 0 4px; }
+  .stage th:first-child, .stage td:first-child { text-align: left; }
+  .stage td { text-align: right; padding: 5px 0; border-top: 1px solid rgba(127, 127, 127, .15); white-space: nowrap; }
+  .stage td.step { font-weight: 600; }
+  .stage td.gain { color: var(--good); font-weight: 800; }
+  .stage .badge { display: inline-block; margin-top: 8px; color: var(--good); font-weight: 700; font-size: 14px; }
   .empty { color: var(--hint); text-align: center; padding: 18px 8px; background: var(--card); border-radius: 14px; }
   #send { display: none; width: 100%; margin-top: 16px; padding: 14px; border: 0; border-radius: 12px;
           background: var(--accent); color: var(--accent-text); font-size: 17px; font-weight: 700; }
@@ -76,19 +79,23 @@
       carts: ["🛒 Сколько раз положили в корзину", "Столбец «Добавили в корзину»", "54"],
       orders: ["📦 Сколько штук заказали", "Столбец «Заказали товаров»", "18"],
       price: ["💵 Цена 1 штуки, сум", "Ваша цена продажи", "150 000"],
+      example: "Например: ",
       optional: "можно не заполнять",
       empty: "Заполните первые 4 поля — и здесь появится результат 👆",
       now: "Сейчас за период",
       orders_word: "заказов",
       sum: "сум",
-      r_ctr: "Из 100 увидевших открыли",
-      r_cart: "Из 100 открывших положили в корзину",
-      r_order: "Из 100 положивших заказали",
-      if_: "Если поднять на",
-      s_ctr: "открытия карточки", s_cart: "корзина", s_order: "заказ",
-      a: "Вариант А", b: "Вариант Б", ab: "А + Б вместе",
-      orders_after: "заказов",
-      best: "👉 Выгоднее всего начать: ",
+      explain: "Что будет, если поднять один шаг (остальные — как сейчас). «+1%» — из каждых 100 человек на 1 больше.",
+      head: { ctr: "👆 Открытия карточки — сейчас ", cart: "🛒 Корзина — сейчас ", order: "📦 Заказ — сейчас " },
+      sub: {
+        ctr: function (n, of) { return "открыли " + n + " из " + of + " увидевших"; },
+        cart: function (n, of) { return "положили в корзину " + n + " из " + of + " открывших"; },
+        order: function (n, of) { return "заказали " + n + " из " + of + " положивших в корзину"; }
+      },
+      col: { ctr: "Открыли", cart: "Корзина", orders: "Заказы", gain: "Выгода" },
+      best_badge: "👑 Больше всего денег",
+      best: { ctr: "открытия карточки", cart: "корзина", order: "заказ" },
+      best_line: "👉 Больше всего денег даст: ",
       send: "Отправить в чат",
       cant: "Для расчёта нужны показы, открытия и корзина больше нуля."
     },
@@ -100,19 +107,23 @@
       carts: ["🛒 Savatga necha marta qo'shishdi", "«Добавили в корзину» ustuni", "54"],
       orders: ["📦 Necha dona buyurtma qilishdi", "«Заказали товаров» ustuni", "18"],
       price: ["💵 1 dona narxi, so'm", "Sotish narxingiz", "150 000"],
+      example: "Masalan: ",
       optional: "to'ldirmasa ham bo'ladi",
       empty: "Birinchi 4 ta maydonni to'ldiring — natija shu yerda chiqadi 👆",
       now: "Hozir, davr davomida",
       orders_word: "ta buyurtma",
       sum: "so'm",
-      r_ctr: "Ko'rgan 100 kishidan ochdi",
-      r_cart: "Ochgan 100 kishidan savatga qo'shdi",
-      r_order: "Savatga qo'shgan 100 kishidan buyurtma qildi",
-      if_: "Oshirsangiz:",
-      s_ctr: "kartochkani ochish", s_cart: "savat", s_order: "buyurtma",
-      a: "A variant", b: "B variant", ab: "A + B birga",
-      orders_after: "ta buyurtma",
-      best: "👉 Eng foydalisi — shundan boshlang: ",
+      explain: "Bitta bosqichni oshirsangiz nima bo'ladi (qolganlari — hozirgidek). «+1%» — har 100 kishidan 1 tasi ko'proq.",
+      head: { ctr: "👆 Kartochkani ochish — hozir ", cart: "🛒 Savat — hozir ", order: "📦 Buyurtma — hozir " },
+      sub: {
+        ctr: function (n, of) { return "ko'rgan " + of + " kishidan " + n + " tasi ochdi"; },
+        cart: function (n, of) { return "ochgan " + of + " kishidan " + n + " tasi savatga qo'shdi"; },
+        order: function (n, of) { return "savatga qo'shgan " + of + " kishidan " + n + " tasi buyurtma qildi"; }
+      },
+      col: { ctr: "Ochdi", cart: "Savat", orders: "Buyurtma", gain: "Foyda" },
+      best_badge: "👑 Eng ko'p pul",
+      best: { ctr: "kartochkani ochish", cart: "savat", order: "buyurtma" },
+      best_line: "👉 Eng ko'p pulni beradi: ",
       send: "Chatga yuborish",
       cant: "Hisoblash uchun ko'rsatish, ochish va savat noldan katta bo'lishi kerak."
     }
@@ -127,7 +138,7 @@
 
   const FIELDS = ["views", "opens", "carts", "orders", "price"];
   const REQUIRED = 4;
-  let step = 1;
+  const STAGES = ["ctr", "cart", "order"];
 
   document.getElementById("title").textContent = L.title;
   document.getElementById("lead").textContent = L.lead;
@@ -146,7 +157,7 @@
       div.querySelector("label").appendChild(o);
     }
     const inp = div.querySelector("input");
-    inp.placeholder = (lang === "uz" ? "Masalan: " : "Например: ") + f[2];
+    inp.placeholder = L.example + f[2];
     div.querySelector(".where").textContent = f[1];
     inp.addEventListener("input", function () { format(inp); render(); });
     inp.addEventListener("keydown", function (e) {
@@ -159,97 +170,89 @@
   function digits(s) { return (s || "").replace(/\D/g, ""); }
   function num(key) { const d = digits(document.getElementById(key).value); return d === "" ? null : Number(d); }
   function money(x) { return Math.round(x).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " "); }
-  function format(inp) {
-    const d = digits(inp.value).slice(0, 12);
-    inp.value = d === "" ? "" : money(Number(d));
-  }
-  function per100(x) { return (x >= 10 || Math.abs(x - Math.round(x)) < 0.05) ? String(Math.round(x)) : x.toFixed(1).replace(".", ","); }
-  function cnt(x) { return x >= 10 ? money(x) : x.toFixed(1).replace(".", ",").replace(",0", ""); }
+  function format(inp) { const d = digits(inp.value).slice(0, 12); inp.value = d === "" ? "" : money(Number(d)); }
+  function p1(x) { return x.toFixed(1).replace(".", ","); }
+  function per100(x) { return (x >= 10 || Math.abs(x - Math.round(x)) < 0.05) ? String(Math.round(x)) : p1(x); }
+  function cnt(x) { return (x >= 100 || Math.abs(x - Math.round(x)) < 0.05) ? money(x) : p1(x); }
+  function k(x) { return Math.abs(x) >= 1000 ? Math.round(x / 1000) * 1000 : x; }
 
-  // Как в services/funnel.py: scenarios()
-  function calc(v) {
+  // Как в services/funnel.py: stage_tables()
+  function tables(v) {
     const rates = {
       ctr: v.views ? v.opens / v.views * 100 : null,
       cart: v.opens ? v.carts / v.opens * 100 : null,
       order: v.carts ? v.orders / v.carts * 100 : null
     };
-    function ordersWith(ch) {
+    function ordersWith(stage, step) {
       let n = v.views;
-      for (const s of ["ctr", "cart", "order"]) {
+      for (const s of STAGES) {
         if (rates[s] === null) return null;
-        n *= Math.min(100, rates[s] + (ch[s] || 0)) / 100;
+        n *= Math.min(100, rates[s] + (s === stage ? step : 0)) / 100;
       }
       return n;
     }
-    const singles = [];
-    for (const s of ["ctr", "cart", "order"]) {
+    const have = { ctr: [v.opens, v.views], cart: [v.carts, v.opens], order: [v.orders, v.carts] };
+    const out = [];
+    for (const s of STAGES) {
       const r = rates[s];
-      if (r === null || r <= 0 || r >= 100) continue;
-      const n = ordersWith({ [s]: step });
-      if (n !== null) singles.push({ stage: s, rate: r, newRate: Math.min(100, r + step), orders: n });
+      if (r === null || r >= 100 || ordersWith(null, 0) === null) continue;
+      const rows = [1, 2, 3].map(function (step) {
+        const nr = Math.min(100, r + step);
+        return { step: step, rate: nr, count: have[s][1] * nr / 100, orders: ordersWith(s, step) };
+      });
+      out.push({ stage: s, rate: r, count: have[s][0], of: have[s][1], rows: rows });
     }
-    singles.sort(function (a, b) { return b.orders - a.orders; });
-    const top = singles.slice(0, 2);
-    let both = null;
-    if (top.length === 2) { const ch = {}; top.forEach(function (x) { ch[x.stage] = step; }); both = ordersWith(ch); }
-    return { rates: rates, top: top, both: both };
+    return out;
   }
 
   function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
 
   function render() {
     const v = {};
-    FIELDS.forEach(function (k) { v[k] = num(k); });
+    FIELDS.forEach(function (f) { v[f] = num(f); });
     const res = document.getElementById("result");
     res.innerHTML = "";
-    const ready = FIELDS.slice(0, REQUIRED).every(function (k) { return v[k] !== null; }) && (v.views > 0 || v.opens > 0);
+    const ready = FIELDS.slice(0, REQUIRED).every(function (f) { return v[f] !== null; }) && (v.views > 0 || v.opens > 0);
     setSend(ready);
     if (!ready) { res.appendChild(el("div", "empty", L.empty)); return; }
     const price = v.price && v.price >= 100 ? v.price : null;
-    const c = calc(v);
 
     const now = el("div", "now");
     now.appendChild(el("div", "s", L.now));
     now.appendChild(el("div", "big", cnt(v.orders) + " " + L.orders_word + (price ? " · " + money(v.orders * price) + " " + L.sum : "")));
-    [["ctr", L.r_ctr], ["cart", L.r_cart], ["order", L.r_order]].forEach(function (p) {
-      if (c.rates[p[0]] === null) return;
-      const row = el("div", "rate"); row.appendChild(el("span", "", p[1])); row.appendChild(el("b", "", per100(c.rates[p[0]])));
-      now.appendChild(row);
-    });
     res.appendChild(now);
 
-    if (!c.top.length) { res.appendChild(el("div", "empty", L.cant)); return; }
-    res.appendChild(el("div", "s", L.if_));
-    const chips = el("div", "chips");
-    [1, 2, 3].forEach(function (n) {
-      const b = el("button", "chip" + (n === step ? " on" : ""), "+" + n + "%");
-      b.addEventListener("click", function () { step = n; haptic(); render(); });
-      chips.appendChild(b);
-    });
-    res.appendChild(chips);
+    const list = tables(v);
+    if (!list.length) { res.appendChild(el("div", "empty", L.cant)); return; }
+    res.appendChild(el("div", "explain", L.explain));
+    const best = list.slice().sort(function (a, b) { return b.rows[0].orders - a.rows[0].orders; })[0].stage;
 
-    const variants = c.top.map(function (sc, i) {
-      return { title: i === 0 ? L.a : L.b, sub: L["s_" + sc.stage] + ": " + per100(sc.rate) + "% → " + per100(sc.newRate) + "%", orders: sc.orders };
-    });
-    if (c.both !== null) variants.push({ title: L.ab, sub: c.top.map(function (x) { return L["s_" + x.stage]; }).join(" + "), orders: c.both });
-    variants.forEach(function (x, i) {
-      const card = el("div", "var" + (i === 0 ? " best" : ""));
-      card.appendChild(el("div", "t", x.title));
-      card.appendChild(el("div", "s", x.sub + " · " + cnt(x.orders) + " " + L.orders_after));
-      const gain = (x.orders - v.orders) * (price || 0);
-      const plus = price ? "+" + money(gain >= 1000 ? Math.round(gain / 1000) * 1000 : gain) + " " + L.sum
-                         : "+" + cnt(x.orders - v.orders) + " " + L.orders_after;
-      card.appendChild(el("div", "plus", plus));
+    list.forEach(function (st) {
+      const card = el("div", "stage" + (st.stage === best ? " best" : ""));
+      card.appendChild(el("div", "head", L.head[st.stage] + per100(st.rate) + "%"));
+      card.appendChild(el("div", "sub", L.sub[st.stage](money(st.count), money(st.of))));
+      const table = el("table");
+      const hr = el("tr");
+      const heads = [""].concat(st.stage !== "order" ? [L.col[st.stage]] : []).concat([L.col.orders]).concat(price ? [L.col.gain] : []);
+      heads.forEach(function (h) { hr.appendChild(el("th", "", h)); });
+      table.appendChild(hr);
+      st.rows.forEach(function (r) {
+        const tr = el("tr");
+        tr.appendChild(el("td", "step", "+" + r.step + "% → " + per100(r.rate) + "%"));
+        if (st.stage !== "order") tr.appendChild(el("td", "", cnt(r.count)));
+        tr.appendChild(el("td", "", cnt(r.orders)));
+        if (price) tr.appendChild(el("td", "gain", "+" + money(k((r.orders - v.orders) * price))));
+        table.appendChild(tr);
+      });
+      card.appendChild(table);
+      if (st.stage === best) card.appendChild(el("div", "badge", L.best_badge));
       res.appendChild(card);
     });
-    res.appendChild(el("div", "tip", L.best + L["s_" + c.top[0].stage]));
   }
 
-  function haptic() { try { tg && tg.HapticFeedback && tg.HapticFeedback.selectionChanged(); } catch (e) {} }
-
   function payload() {
-    const out = { v: 1, step: step };
-    FIELDS.forEach(function (k) { out[k] = num(k) || 0; });
+    const out = { v: 2 };
+    FIELDS.forEach(function (f) { out[f] = num(f) || 0; });
     return JSON.stringify(out);
   }
   function send() { if (tg && inTelegram) { tg.sendData(payload()); } }
