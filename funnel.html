@@ -3,8 +3,9 @@
   🧮 Мини-приложение «Калькулятор воронки» для бота @Market_Guru_Uz_Bot (раздел «📈 Воронка продаж»).
   Открывается кнопкой внизу чата. Всё считается прямо в телефоне; боту цифры уходят, только когда человек
   нажимает «Отправить в чат» (Telegram.WebApp.sendData → handlers/funnel.py, on_app_data).
-  Расчёт — как в services/funnel.py (stage_tables): по каждому шагу «если поднять только его на +1/+2/+3%»
-  (+1% = из 100 человек на одного больше: 6% → 7%), остальные шаги — как сейчас.
+  Расчёт — как в services/funnel.py (stage_tables, all_together): по каждому шагу «сейчас» и «если поднять только
+  его на +1/+2/+3%» (+1% = из 100 человек на одного больше: 6% → 7%), остальные шаги — как сейчас;
+  в конце — все три шага вместе. Выручка — итоговая (и маленьким шрифтом прибавка).
   Параметры ссылки: ?lang=ru|uz, &price=… (цена из калькулятора прибыли).
   На странице нет ключей и данных — она лежит на открытом GitHub Pages (репозиторий market-guru-app).
   После правок: скопировать этот файл в market-guru-app и отправить (Push) — страница обновится сама.
@@ -52,7 +53,10 @@
   .stage th:first-child, .stage td:first-child { text-align: left; }
   .stage td { text-align: right; padding: 5px 0; border-top: 1px solid rgba(127, 127, 127, .15); white-space: nowrap; }
   .stage td.step { font-weight: 600; }
-  .stage td.gain { color: var(--good); font-weight: 800; }
+  .stage td.gain { font-weight: 700; }
+  .stage td.gain small { display: block; color: var(--good); font-weight: 800; font-size: 12px; }
+  .stage tr.now td { color: var(--hint); }
+  .stage.all { background: transparent; border: 2px dashed var(--good); }
   .stage .badge { display: inline-block; margin-top: 8px; color: var(--good); font-weight: 700; font-size: 14px; }
   .empty { color: var(--hint); text-align: center; padding: 18px 8px; background: var(--card); border-radius: 14px; }
   #send { display: none; width: 100%; margin-top: 16px; padding: 14px; border: 0; border-radius: 12px;
@@ -85,14 +89,19 @@
       now: "Сейчас за период",
       orders_word: "заказов",
       sum: "сум",
-      explain: "Что будет, если поднять один шаг (остальные — как сейчас). «+1%» — из каждых 100 человек на 1 больше.",
+      explain: "В каждом блоке: первая строка — как сейчас, ниже — что будет, если поднять только этот шаг. «+1%» — из каждых 100 человек на 1 больше.",
+      now_row: "Сейчас ",
+      all_head: "🚀 Если поднять все три шага вместе",
+      all_sub: "открытия, корзину и заказ — каждый на +1, +2 или +3%",
+      now_all: "Сейчас",
+      each: function (n) { return "+" + n + "% каждый"; },
       head: { ctr: "👆 Открытия карточки — сейчас ", cart: "🛒 Корзина — сейчас ", order: "📦 Заказ — сейчас " },
       sub: {
         ctr: function (n, of) { return "открыли " + n + " из " + of + " увидевших"; },
         cart: function (n, of) { return "положили в корзину " + n + " из " + of + " открывших"; },
         order: function (n, of) { return "заказали " + n + " из " + of + " положивших в корзину"; }
       },
-      col: { ctr: "Открыли", cart: "Корзина", orders: "Заказы", gain: "Выгода" },
+      col: { ctr: "Открыли", cart: "Корзина", orders: "Заказы", gain: "Выручка" },
       best_badge: "👑 Больше всего денег",
       best: { ctr: "открытия карточки", cart: "корзина", order: "заказ" },
       best_line: "👉 Больше всего денег даст: ",
@@ -113,14 +122,19 @@
       now: "Hozir, davr davomida",
       orders_word: "ta buyurtma",
       sum: "so'm",
-      explain: "Bitta bosqichni oshirsangiz nima bo'ladi (qolganlari — hozirgidek). «+1%» — har 100 kishidan 1 tasi ko'proq.",
+      explain: "Har bir blokda: birinchi qator — hozirgi holat, pastda — faqat shu bosqichni oshirsangiz nima bo'ladi. «+1%» — har 100 kishidan 1 tasi ko'proq.",
+      now_row: "Hozir ",
+      all_head: "🚀 Uchala bosqichni birga oshirsangiz",
+      all_sub: "ochish, savat va buyurtma — har biri +1, +2 yoki +3% ga",
+      now_all: "Hozir",
+      each: function (n) { return "har biri +" + n + "%"; },
       head: { ctr: "👆 Kartochkani ochish — hozir ", cart: "🛒 Savat — hozir ", order: "📦 Buyurtma — hozir " },
       sub: {
         ctr: function (n, of) { return "ko'rgan " + of + " kishidan " + n + " tasi ochdi"; },
         cart: function (n, of) { return "ochgan " + of + " kishidan " + n + " tasi savatga qo'shdi"; },
         order: function (n, of) { return "savatga qo'shgan " + of + " kishidan " + n + " tasi buyurtma qildi"; }
       },
-      col: { ctr: "Ochdi", cart: "Savat", orders: "Buyurtma", gain: "Foyda" },
+      col: { ctr: "Ochdi", cart: "Savat", orders: "Buyurtma", gain: "Tushum" },
       best_badge: "👑 Eng ko'p pul",
       best: { ctr: "kartochkani ochish", cart: "savat", order: "buyurtma" },
       best_line: "👉 Eng ko'p pulni beradi: ",
@@ -202,7 +216,22 @@
       });
       out.push({ stage: s, rate: r, count: have[s][0], of: have[s][1], rows: rows });
     }
-    return out;
+    // Как в services/funnel.py: all_together() — все три шага сразу на +1/+2/+3% каждый
+    let together = [];
+    if (out.length === STAGES.length) {
+      together = [1, 2, 3].map(function (step) {
+        let n = v.views;
+        for (const s of STAGES) n *= Math.min(100, rates[s] + step) / 100;
+        return { step: step, orders: n };
+      });
+    }
+    return { list: out, together: together };
+  }
+
+  function moneyCell(tr, orders, base, price, exact) {
+    const td = el("td", "gain", money(exact ? orders * price : k(orders * price)));
+    if (!exact) td.appendChild(el("small", "", "+" + money(k((orders - base) * price))));
+    tr.appendChild(td);
   }
 
   function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
@@ -222,32 +251,65 @@
     now.appendChild(el("div", "big", cnt(v.orders) + " " + L.orders_word + (price ? " · " + money(v.orders * price) + " " + L.sum : "")));
     res.appendChild(now);
 
-    const list = tables(v);
+    const t = tables(v);
+    const list = t.list;
     if (!list.length) { res.appendChild(el("div", "empty", L.cant)); return; }
     res.appendChild(el("div", "explain", L.explain));
     const best = list.slice().sort(function (a, b) { return b.rows[0].orders - a.rows[0].orders; })[0].stage;
 
+    function head(table, cols) {
+      const hr = el("tr");
+      cols.forEach(function (h) { hr.appendChild(el("th", "", h)); });
+      table.appendChild(hr);
+    }
+
     list.forEach(function (st) {
       const card = el("div", "stage" + (st.stage === best ? " best" : ""));
+      const hasCount = st.stage !== "order";
       card.appendChild(el("div", "head", L.head[st.stage] + per100(st.rate) + "%"));
       card.appendChild(el("div", "sub", L.sub[st.stage](money(st.count), money(st.of))));
       const table = el("table");
-      const hr = el("tr");
-      const heads = [""].concat(st.stage !== "order" ? [L.col[st.stage]] : []).concat([L.col.orders]).concat(price ? [L.col.gain] : []);
-      heads.forEach(function (h) { hr.appendChild(el("th", "", h)); });
-      table.appendChild(hr);
+      head(table, [""].concat(hasCount ? [L.col[st.stage]] : []).concat([L.col.orders]).concat(price ? [L.col.gain] : []));
+      const now = el("tr", "now");
+      now.appendChild(el("td", "step", L.now_row + per100(st.rate) + "%"));
+      if (hasCount) now.appendChild(el("td", "", money(st.count)));
+      now.appendChild(el("td", "", cnt(v.orders)));
+      if (price) moneyCell(now, v.orders, v.orders, price, true);
+      table.appendChild(now);
       st.rows.forEach(function (r) {
         const tr = el("tr");
         tr.appendChild(el("td", "step", "+" + r.step + "% → " + per100(r.rate) + "%"));
-        if (st.stage !== "order") tr.appendChild(el("td", "", cnt(r.count)));
+        if (hasCount) tr.appendChild(el("td", "", cnt(r.count)));
         tr.appendChild(el("td", "", cnt(r.orders)));
-        if (price) tr.appendChild(el("td", "gain", "+" + money(k((r.orders - v.orders) * price))));
+        if (price) moneyCell(tr, r.orders, v.orders, price, false);
         table.appendChild(tr);
       });
       card.appendChild(table);
       if (st.stage === best) card.appendChild(el("div", "badge", L.best_badge));
       res.appendChild(card);
     });
+
+    if (t.together.length) {
+      const card = el("div", "stage all");
+      card.appendChild(el("div", "head", L.all_head));
+      card.appendChild(el("div", "sub", L.all_sub));
+      const table = el("table");
+      head(table, ["", L.col.orders].concat(price ? [L.col.gain] : []));
+      const now = el("tr", "now");
+      now.appendChild(el("td", "step", L.now_all));
+      now.appendChild(el("td", "", cnt(v.orders)));
+      if (price) moneyCell(now, v.orders, v.orders, price, true);
+      table.appendChild(now);
+      t.together.forEach(function (r) {
+        const tr = el("tr");
+        tr.appendChild(el("td", "step", L.each(r.step)));
+        tr.appendChild(el("td", "", cnt(r.orders)));
+        if (price) moneyCell(tr, r.orders, v.orders, price, false);
+        table.appendChild(tr);
+      });
+      card.appendChild(table);
+      res.appendChild(card);
+    }
   }
 
   function payload() {
