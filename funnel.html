@@ -57,6 +57,8 @@
   .stage td.gain small { display: block; color: var(--good); font-weight: 800; font-size: 12px; }
   .stage tr.now td { color: var(--hint); }
   .stage.all { background: transparent; border: 2px dashed var(--good); }
+  .stage td + td, .stage th + th { padding-left: 10px; }
+  .stage tr.parts td { border-top: 0; padding-top: 0; color: var(--hint); font-size: 12px; text-align: left; white-space: normal; }
   .stage .warn { font-size: 14px; color: #c0392b; margin-top: 4px; }
   .stage .badge { display: inline-block; margin-top: 8px; color: var(--good); font-weight: 700; font-size: 14px; }
   .empty { color: var(--hint); text-align: center; padding: 18px 8px; background: var(--card); border-radius: 14px; }
@@ -93,7 +95,7 @@
       explain: "В каждом блоке: первая строка — как сейчас, ниже — что будет, если поднять только этот шаг. «+1%» — из каждых 100 человек на 1 больше.",
       now_row: "Сейчас ",
       all_head: "🚀 Если поднять все шаги вместе",
-      all_sub: "открытия, корзину и заказ — каждый на +1, +2 или +3%",
+      all_sub: "поднимаем сразу три шага: открытия карточки (CTR), корзину и заказ — каждый на +1, +2 или +3%",
       all_sub_some: function (list) { return "поднимаем то, что можно посчитать: " + list + " — каждый на +1, +2 или +3%"; },
       bad: {
         no_views: "Нет показов — впишите, сколько раз товар увидели, иначе открытия не посчитать.",
@@ -136,7 +138,7 @@
       explain: "Har bir blokda: birinchi qator — hozirgi holat, pastda — faqat shu bosqichni oshirsangiz nima bo'ladi. «+1%» — har 100 kishidan 1 tasi ko'proq.",
       now_row: "Hozir ",
       all_head: "🚀 Barcha bosqichlarni birga oshirsangiz",
-      all_sub: "ochish, savat va buyurtma — har biri +1, +2 yoki +3% ga",
+      all_sub: "uchala bosqichni birga oshiramiz: kartochkani ochish (CTR), savat va buyurtma — har biri +1, +2 yoki +3% ga",
       all_sub_some: function (list) { return "hisoblash mumkin bo'lganini oshiramiz: " + list + " — har biri +1, +2 yoki +3% ga"; },
       bad: {
         no_views: "Ko'rsatishlar yo'q — tovarni necha marta ko'rishganini yozing, aks holda ochishni hisoblab bo'lmaydi.",
@@ -330,6 +332,14 @@
         tr.appendChild(el("td", "", cnt(r.orders)));
         if (price) moneyCell(tr, r.orders, v.orders, price, false);
         table.appendChild(tr);
+        // Под строкой — что именно поднимаем: «открытия карточки 1,5% → 2,5% · корзина 7% → 8% · заказ 21% → 22%»
+        const parts = el("tr", "parts");
+        const td = el("td", "", t.ok.map(function (x) {
+          return L.best[x.stage] + " " + per100(x.rate) + "% → " + per100(Math.min(100, x.rate + r.step)) + "%";
+        }).join(" · "));
+        td.colSpan = price ? 3 : 2;
+        parts.appendChild(td);
+        table.appendChild(parts);
       });
       card.appendChild(table);
       res.appendChild(card);
