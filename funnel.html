@@ -57,6 +57,7 @@
   .stage td.gain small { display: block; color: var(--good); font-weight: 800; font-size: 12px; }
   .stage tr.now td { color: var(--hint); }
   .stage.all { background: transparent; border: 2px dashed var(--good); }
+  .stage .warn { font-size: 14px; color: #c0392b; margin-top: 4px; }
   .stage .badge { display: inline-block; margin-top: 8px; color: var(--good); font-weight: 700; font-size: 14px; }
   .empty { color: var(--hint); text-align: center; padding: 18px 8px; background: var(--card); border-radius: 14px; }
   #send { display: none; width: 100%; margin-top: 16px; padding: 14px; border: 0; border-radius: 12px;
@@ -91,8 +92,18 @@
       sum: "сум",
       explain: "В каждом блоке: первая строка — как сейчас, ниже — что будет, если поднять только этот шаг. «+1%» — из каждых 100 человек на 1 больше.",
       now_row: "Сейчас ",
-      all_head: "🚀 Если поднять все три шага вместе",
+      all_head: "🚀 Если поднять все шаги вместе",
       all_sub: "открытия, корзину и заказ — каждый на +1, +2 или +3%",
+      all_sub_some: function (list) { return "поднимаем то, что можно посчитать: " + list + " — каждый на +1, +2 или +3%"; },
+      bad: {
+        no_views: "Нет показов — впишите, сколько раз товар увидели, иначе открытия не посчитать.",
+        no_opens: "Карточку ещё не открывали — корзину не посчитать.",
+        no_carts: "В корзину ещё не клали — заказ не посчитать.",
+        no_orders: "Пока нет заказов — прибавку считать не от чего.",
+        over_ctr: "Открытий больше, чем показов — проверьте цифры: «сколько увидели» должно быть больше, чем «сколько открыли».",
+        over_cart: "В корзину положили больше, чем открыли карточку (кладут прямо из поиска) — этот шаг поднимать некуда.",
+        over_order: "Заказали больше штук, чем положили в корзину (несколько штук в одном заказе) — этот шаг не считаем."
+      },
       now_all: "Сейчас",
       each: function (n) { return "+" + n + "% каждый"; },
       head: { ctr: "👆 Открытия карточки — сейчас ", cart: "🛒 Корзина — сейчас ", order: "📦 Заказ — сейчас " },
@@ -124,8 +135,18 @@
       sum: "so'm",
       explain: "Har bir blokda: birinchi qator — hozirgi holat, pastda — faqat shu bosqichni oshirsangiz nima bo'ladi. «+1%» — har 100 kishidan 1 tasi ko'proq.",
       now_row: "Hozir ",
-      all_head: "🚀 Uchala bosqichni birga oshirsangiz",
+      all_head: "🚀 Barcha bosqichlarni birga oshirsangiz",
       all_sub: "ochish, savat va buyurtma — har biri +1, +2 yoki +3% ga",
+      all_sub_some: function (list) { return "hisoblash mumkin bo'lganini oshiramiz: " + list + " — har biri +1, +2 yoki +3% ga"; },
+      bad: {
+        no_views: "Ko'rsatishlar yo'q — tovarni necha marta ko'rishganini yozing, aks holda ochishni hisoblab bo'lmaydi.",
+        no_opens: "Kartochkani hali ochishmagan — savatni hisoblab bo'lmaydi.",
+        no_carts: "Savatga hali qo'shishmagan — buyurtmani hisoblab bo'lmaydi.",
+        no_orders: "Hozircha buyurtma yo'q — o'sishni hisoblashga asos yo'q.",
+        over_ctr: "Ochishlar ko'rsatishlardan ko'p — raqamlarni tekshiring: «necha marta ko'rishdi» «necha marta ochishdi»dan katta bo'lishi kerak.",
+        over_cart: "Savatga kartochkani ochganlardan ko'p qo'shishgan (to'g'ridan-to'g'ri qidiruvdan) — bu bosqichni oshirishga joy yo'q.",
+        over_order: "Savatdagidan ko'proq dona buyurtma qilishgan (bitta buyurtmada bir necha dona) — bu bosqichni hisoblamaymiz."
+      },
       now_all: "Hozir",
       each: function (n) { return "har biri +" + n + "%"; },
       head: { ctr: "👆 Kartochkani ochish — hozir ", cart: "🛒 Savat — hozir ", order: "📦 Buyurtma — hozir " },
@@ -190,42 +211,40 @@
   function cnt(x) { return (x >= 100 || Math.abs(x - Math.round(x)) < 0.05) ? money(x) : p1(x); }
   function k(x) { return Math.abs(x) >= 1000 ? Math.round(x / 1000) * 1000 : x; }
 
-  // Как в services/funnel.py: stage_tables()
+  // Как в services/funnel.py: stage_tables() — заказов станет orders × (r + n) / r. Шаг, который посчитать нельзя,
+  // не прячем, а пишем причину (problem).
   function tables(v) {
     const rates = {
       ctr: v.views ? v.opens / v.views * 100 : null,
       cart: v.opens ? v.carts / v.opens * 100 : null,
       order: v.carts ? v.orders / v.carts * 100 : null
     };
-    function ordersWith(stage, step) {
-      let n = v.views;
-      for (const s of STAGES) {
-        if (rates[s] === null) return null;
-        n *= Math.min(100, rates[s] + (s === stage ? step : 0)) / 100;
-      }
-      return n;
-    }
+    const none = { ctr: "no_views", cart: "no_opens", order: "no_carts" };
     const have = { ctr: [v.opens, v.views], cart: [v.carts, v.opens], order: [v.orders, v.carts] };
     const out = [];
     for (const s of STAGES) {
       const r = rates[s];
-      if (r === null || r >= 100 || ordersWith(null, 0) === null) continue;
-      const rows = [1, 2, 3].map(function (step) {
+      let problem = null;
+      if (r === null) problem = none[s];
+      else if (r >= 100) problem = "over_" + s;
+      else if (v.orders <= 0 || r <= 0) problem = "no_orders";
+      const rows = problem ? [] : [1, 2, 3].map(function (step) {
         const nr = Math.min(100, r + step);
-        return { step: step, rate: nr, count: have[s][1] * nr / 100, orders: ordersWith(s, step) };
+        return { step: step, rate: nr, count: have[s][1] * nr / 100, orders: v.orders * nr / r };
       });
-      out.push({ stage: s, rate: r, count: have[s][0], of: have[s][1], rows: rows });
+      out.push({ stage: s, rate: r, count: have[s][0], of: have[s][1], rows: rows, problem: problem });
     }
-    // Как в services/funnel.py: all_together() — все три шага сразу на +1/+2/+3% каждый
+    // Как в services/funnel.py: all_together() — все шаги, которые можно посчитать, сразу на +1/+2/+3% каждый
+    const ok = out.filter(function (x) { return !x.problem; });
     let together = [];
-    if (out.length === STAGES.length) {
+    if (ok.length >= 2) {
       together = [1, 2, 3].map(function (step) {
-        let n = v.views;
-        for (const s of STAGES) n *= Math.min(100, rates[s] + step) / 100;
+        let n = v.orders;
+        ok.forEach(function (x) { n *= Math.min(100, x.rate + step) / x.rate; });
         return { step: step, orders: n };
       });
     }
-    return { list: out, together: together };
+    return { list: out, ok: ok, together: together };
   }
 
   function moneyCell(tr, orders, base, price, exact) {
@@ -253,9 +272,8 @@
 
     const t = tables(v);
     const list = t.list;
-    if (!list.length) { res.appendChild(el("div", "empty", L.cant)); return; }
-    res.appendChild(el("div", "explain", L.explain));
-    const best = list.slice().sort(function (a, b) { return b.rows[0].orders - a.rows[0].orders; })[0].stage;
+    if (t.ok.length) res.appendChild(el("div", "explain", L.explain));
+    const best = t.ok.length ? t.ok.slice().sort(function (a, b) { return b.rows[0].orders - a.rows[0].orders; })[0].stage : null;
 
     function head(table, cols) {
       const hr = el("tr");
@@ -266,8 +284,13 @@
     list.forEach(function (st) {
       const card = el("div", "stage" + (st.stage === best ? " best" : ""));
       const hasCount = st.stage !== "order";
-      card.appendChild(el("div", "head", L.head[st.stage] + per100(st.rate) + "%"));
+      card.appendChild(el("div", "head", L.head[st.stage] + (st.rate === null ? "—" : per100(st.rate) + "%")));
       card.appendChild(el("div", "sub", L.sub[st.stage](money(st.count), money(st.of))));
+      if (st.problem) {
+        card.appendChild(el("div", "warn", "⚠️ " + L.bad[st.problem]));
+        res.appendChild(card);
+        return;
+      }
       const table = el("table");
       head(table, [""].concat(hasCount ? [L.col[st.stage]] : []).concat([L.col.orders]).concat(price ? [L.col.gain] : []));
       const now = el("tr", "now");
@@ -292,7 +315,8 @@
     if (t.together.length) {
       const card = el("div", "stage all");
       card.appendChild(el("div", "head", L.all_head));
-      card.appendChild(el("div", "sub", L.all_sub));
+      card.appendChild(el("div", "sub", t.ok.length === STAGES.length ? L.all_sub
+        : L.all_sub_some(t.ok.map(function (x) { return L.best[x.stage]; }).join(", "))));
       const table = el("table");
       head(table, ["", L.col.orders].concat(price ? [L.col.gain] : []));
       const now = el("tr", "now");
