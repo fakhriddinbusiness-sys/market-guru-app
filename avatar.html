@@ -150,7 +150,7 @@
       thinkingLive: "Думаю над ответом…", speakingLive: "Отвечаю",
       heard: "🎤 Вы сказали: ", againSub: "Можно спросить ещё",
       errors: {
-        auth: "Откройте окно заново из бота: команда /talk.",
+        auth: "Откройте окно заново из меню бота.",
         closed: "Разговор голосом пока закрыт — скоро откроем!",
         ai_off: "ИИ-помощник пока не подключён.",
         stt_off: "Распознавание голоса пока не подключено.",
@@ -160,7 +160,7 @@
         not_heard: "Не разобрал слова. Скажите чуть громче и ближе к телефону.",
         stt_error: "Не получилось распознать. Попробуйте ещё раз через минуту.",
         ai_error: "Не получилось ответить. Попробуйте ещё раз через минуту.",
-        network: "Нет связи с ботом. Проверьте интернет или откройте окно заново (/talk).",
+        network: "Нет связи с ботом. Проверьте интернет или откройте окно заново из меню бота.",
       },
     },
     uz: {
@@ -179,7 +179,7 @@
       thinkingLive: "Javob ustida o'ylayapman…", speakingLive: "Javob beryapman",
       heard: "🎤 Siz aytdingiz: ", againSub: "Yana so'rashingiz mumkin",
       errors: {
-        auth: "Oynani botdan qayta oching: /talk buyrug'i.",
+        auth: "Oynani bot menyusidan qayta oching.",
         closed: "Ovozli suhbat hozircha yopiq — tez orada ochamiz!",
         ai_off: "AI-yordamchi hali ulanmagan.",
         stt_off: "Ovozni tanish hali ulanmagan.",
@@ -189,7 +189,7 @@
         not_heard: "So'zlarni tushunmadim. Biroz balandroq va telefonga yaqinroq gapiring.",
         stt_error: "Tanib bo'lmadi. Bir daqiqadan so'ng qayta urinib ko'ring.",
         ai_error: "Javob bera olmadim. Bir daqiqadan so'ng qayta urinib ko'ring.",
-        network: "Bot bilan aloqa yo'q. Internetni tekshiring yoki oynani qayta oching (/talk).",
+        network: "Bot bilan aloqa yo'q. Internetni tekshiring yoki oynani bot menyusidan qayta oching.",
       },
     },
   }[lang];
@@ -218,7 +218,7 @@
 
   const MAX_MS = 60000;   // как у голосовых в боте: не дольше минуты
   let state = "idle";
-  let ctx = null, analyser = null, data = null, micStream = null, recorder = null, chunks = [];
+  let ctx = null, analyser = null, data = null, micStream = null, micAnalyser = null, recorder = null, chunks = [];
   let recStart = 0, maxTimer = null, level = 0;
 
   function haptic(kind) { try { tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred(kind); } catch (e) {} }
@@ -271,12 +271,20 @@
     try {
       ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
       if (ctx.state === "suspended") await ctx.resume();   // звук разрешён только после нажатия — нажатие есть
-      micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      // Микрофон включаем один раз на всё время, пока окно открыто: иначе Telegram спрашивает разрешение
+      // перед каждым вопросом. Выключаем, когда окно свернули или закрыли.
+      if (!micLive()) {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+        micAnalyser = ctx.createAnalyser();
+        micAnalyser.fftSize = 1024;
+        ctx.createMediaStreamSource(micStream).connect(micAnalyser);
+      }
     } catch (e) {
       const denied = e && (e.name === "NotAllowedError" || e.name === "SecurityError" || e.name === "PermissionDeniedError");
       setState("idle", denied ? T.denied : T.fail + (e && e.name || e), "err"); diag(e && e.name); return;
     }
-    ctx.createMediaStreamSource(micStream).connect(makeAnalyser());
+    analyser = micAnalyser;
+    data = new Uint8Array(analyser.fftSize);
     const types = ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus", "audio/webm"];
     const mime = types.find((m) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) || "";
     try {
@@ -295,15 +303,23 @@
     maxTimer = setTimeout(stopRec, MAX_MS);
   }
 
+  function micLive() {
+    return !!(micStream && micStream.getAudioTracks().some((t) => t.readyState === "live"));
+  }
+
   function stopMic() {
+    if (recorder && recorder.state === "recording") recorder.stop();
     if (micStream) micStream.getTracks().forEach((t) => t.stop());
     micStream = null;
+    micAnalyser = null;
   }
+  // Окно свернули / закрыли — микрофон выключаем (при следующем вопросе Telegram спросит разрешение заново).
+  document.addEventListener("visibilitychange", () => { if (document.hidden) stopMic(); });
+  window.addEventListener("pagehide", stopMic);
 
   function stopRec() {
     clearTimeout(maxTimer);
     if (recorder && recorder.state === "recording") recorder.stop();
-    stopMic();
     haptic("light");
   }
 
