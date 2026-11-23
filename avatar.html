@@ -1,0 +1,406 @@
+<!doctype html>
+<!--
+  🎙 Мини-приложение «Поговорить с Market Guru» для бота @Market_Guru_Uz_Bot.
+  Этап 1 (проверка): анимированный помощник + микрофон. Когда человек говорит — к ушам бота летят звуковые волны
+  и уши светятся («слышит»); потом бот «думает» (глаза вверх, лампочка мигает) и «говорит» — рот двигается в такт
+  звуку. Пока своего голоса нет: для проверки бот проигрывает запись человека (проверяем запись и звук в Telegram).
+  Этап 2: вместо повтора — распознавание → ответ ИИ → озвучка (через сервер бота).
+  Параметры ссылки: ?lang=ru|uz. Ключей и данных на странице нет — она лежит на открытом GitHub Pages
+  (репозиторий market-guru-app). После правок: скопировать файл в market-guru-app и отправить (Push).
+-->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Market Guru</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --text: var(--tg-theme-text-color, #1c1c1e);
+    --hint: var(--tg-theme-hint-color, #8e8e93);
+    --card: var(--tg-theme-secondary-bg-color, #f2f2f7);
+    --accent: var(--tg-theme-button-color, #7b2ff7);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --rec: #ef4444;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); overflow: hidden;
+         font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         -webkit-user-select: none; user-select: none; }
+  main { height: 100%; max-width: 520px; margin: 0 auto; padding: 12px 16px 20px;
+         display: flex; flex-direction: column; align-items: center; }
+  .stage { flex: 1; width: 100%; display: flex; align-items: center; justify-content: center; min-height: 0; }
+  svg { width: 100%; max-width: 340px; max-height: 100%; overflow: visible; }
+  .status { min-height: 48px; text-align: center; font-size: 18px; font-weight: 600; margin: 4px 0 2px; }
+  .sub { min-height: 40px; text-align: center; font-size: 14px; color: var(--hint); margin: 0 0 14px; }
+  .sub.err { color: var(--rec); }
+  .sub.ok { color: #1aa260; }
+  .mic { width: 88px; height: 88px; border-radius: 50%; border: 0; background: var(--accent);
+         color: var(--accent-text); font-size: 34px; cursor: pointer; position: relative;
+         box-shadow: 0 6px 18px rgba(123, 47, 247, .35); transition: transform .15s, background .2s, opacity .2s; }
+  .mic:active { transform: scale(.94); }
+  .mic.rec { background: var(--rec); box-shadow: 0 0 0 var(--ring, 6px) rgba(239, 68, 68, .25); }
+  .mic:disabled { opacity: .45; }
+  .btn-label { margin-top: 8px; font-size: 14px; color: var(--hint); }
+  .note { margin-top: 12px; font-size: 12px; color: var(--hint); text-align: center; max-width: 360px; }
+  .diag { margin-top: 6px; font-size: 11px; color: var(--hint); opacity: .7; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+  <div class="stage">
+    <svg id="scene" viewBox="0 0 300 290" aria-label="Market Guru">
+      <defs>
+        <linearGradient id="headGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#9b6bff"/>
+          <stop offset="1" stop-color="#6a2fe0"/>
+        </linearGradient>
+        <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+          <stop offset="0" stop-color="#67e8f9" stop-opacity=".9"/>
+          <stop offset="1" stop-color="#67e8f9" stop-opacity="0"/>
+        </radialGradient>
+        <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur stdDeviation="2.2"/>
+        </filter>
+      </defs>
+
+      <ellipse cx="150" cy="252" rx="78" ry="9" fill="#000" opacity=".08" id="shadow"/>
+      <g id="waves"></g>
+
+      <g id="bot">
+        <!-- антенна -->
+        <line x1="150" y1="52" x2="150" y2="26" stroke="#6a2fe0" stroke-width="6" stroke-linecap="round"/>
+        <circle id="bulbGlow" cx="150" cy="21" r="16" fill="url(#glow)" opacity="0"/>
+        <circle id="bulb" cx="150" cy="21" r="8" fill="#c4b5fd"/>
+        <!-- уши-наушники -->
+        <circle id="earGlowL" cx="44" cy="140" r="30" fill="url(#glow)" opacity="0"/>
+        <circle id="earGlowR" cx="256" cy="140" r="30" fill="url(#glow)" opacity="0"/>
+        <rect x="32" y="112" width="26" height="56" rx="12" fill="#5520c4"/>
+        <rect x="242" y="112" width="26" height="56" rx="12" fill="#5520c4"/>
+        <!-- голова -->
+        <rect x="52" y="50" width="196" height="178" rx="64" fill="url(#headGrad)"/>
+        <rect x="64" y="60" width="172" height="40" rx="20" fill="#fff" opacity=".10"/>
+        <!-- экран-лицо -->
+        <rect x="76" y="80" width="148" height="122" rx="42" fill="#111633"/>
+        <!-- щёки -->
+        <ellipse cx="98" cy="170" rx="11" ry="6" fill="#f472b6" opacity=".35"/>
+        <ellipse cx="202" cy="170" rx="11" ry="6" fill="#f472b6" opacity=".35"/>
+        <!-- глаза -->
+        <g id="eyes">
+          <g class="eye" id="eyeL">
+            <ellipse cx="120" cy="128" rx="14" ry="18" fill="#67e8f9" filter="url(#soft)" opacity=".55"/>
+            <ellipse cx="120" cy="128" rx="13" ry="17" fill="#67e8f9"/>
+            <circle cx="125" cy="121" r="4.5" fill="#fff" opacity=".9"/>
+          </g>
+          <g class="eye" id="eyeR">
+            <ellipse cx="180" cy="128" rx="14" ry="18" fill="#67e8f9" filter="url(#soft)" opacity=".55"/>
+            <ellipse cx="180" cy="128" rx="13" ry="17" fill="#67e8f9"/>
+            <circle cx="185" cy="121" r="4.5" fill="#fff" opacity=".9"/>
+          </g>
+        </g>
+        <!-- рот: улыбка, а когда говорит — открывается -->
+        <path id="smile" d="M132 168 Q150 182 168 168" fill="none" stroke="#67e8f9" stroke-width="5" stroke-linecap="round"/>
+        <ellipse id="mouth" cx="150" cy="172" rx="16" ry="3" fill="#67e8f9" opacity="0"/>
+        <ellipse id="tongue" cx="150" cy="178" rx="9" ry="0" fill="#f472b6" opacity="0"/>
+      </g>
+    </svg>
+  </div>
+
+  <div class="status" id="status"></div>
+  <div class="sub" id="sub"></div>
+  <button class="mic" id="mic" aria-label="mic">🎙</button>
+  <div class="btn-label" id="btnLabel"></div>
+  <div class="note" id="note"></div>
+  <div class="diag" id="diag"></div>
+</main>
+
+<script>
+(() => {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) { tg.ready(); tg.expand(); }
+
+  const params = new URLSearchParams(location.search);
+  const code = params.get("lang") || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user &&
+                                      tg.initDataUnsafe.user.language_code) || "ru";
+  const lang = String(code).startsWith("uz") ? "uz" : "ru";
+  document.documentElement.lang = lang;
+
+  const T = {
+    ru: {
+      idle: "Привет! Я Market Guru", idleSub: "Нажмите на кнопку и скажите что-нибудь",
+      start: "Говорить", stop: "Готово",
+      listening: "Слушаю…", listeningSub: "Говорите, потом нажмите «Готово»",
+      thinking: "Думаю…", speaking: "Повторяю, что услышал",
+      ok: "✅ Микрофон и звук работают. Попробуйте ещё раз!",
+      note: "Это проверка: пока Market Guru повторяет вашу запись. Скоро здесь будут его голос и ответы ИИ.",
+      noMic: "В этом окне микрофон недоступен. Напишите, какой у вас телефон — разберёмся.",
+      denied: "Нет доступа к микрофону. Разрешите его для Telegram в настройках телефона и откройте окно снова.",
+      short: "Слишком коротко — скажите чуть дольше.",
+      fail: "Не получилось: ",
+    },
+    uz: {
+      idle: "Salom! Men Market Guru", idleSub: "Tugmani bosing va biror narsa ayting",
+      start: "Gapirish", stop: "Tayyor",
+      listening: "Tinglayapman…", listeningSub: "Gapiring, keyin «Tayyor»ni bosing",
+      thinking: "O'ylayapman…", speaking: "Eshitganimni takrorlayapman",
+      ok: "✅ Mikrofon va ovoz ishlayapti. Yana urinib ko'ring!",
+      note: "Bu sinov: hozircha Market Guru yozuvingizni takrorlaydi. Tez orada bu yerda uning ovozi va AI javoblari bo'ladi.",
+      noMic: "Bu oynada mikrofon ishlamayapti. Telefoningiz qanaqa ekanini yozing — hal qilamiz.",
+      denied: "Mikrofonga ruxsat yo'q. Telefon sozlamalarida Telegram'ga ruxsat bering va oynani qayta oching.",
+      short: "Juda qisqa — biroz uzoqroq gapiring.",
+      fail: "Bo'lmadi: ",
+    },
+  }[lang];
+
+  const $ = (id) => document.getElementById(id);
+  const el = {
+    bot: $("bot"), eyes: $("eyes"), eyeL: $("eyeL"), eyeR: $("eyeR"), smile: $("smile"), mouth: $("mouth"),
+    tongue: $("tongue"), bulb: $("bulb"), bulbGlow: $("bulbGlow"), earL: $("earGlowL"), earR: $("earGlowR"),
+    waves: $("waves"), shadow: $("shadow"), status: $("status"), sub: $("sub"), mic: $("mic"),
+    btnLabel: $("btnLabel"), note: $("note"), diag: $("diag"),
+  };
+  el.note.textContent = T.note;
+
+  const MAX_MS = 60000;   // как у голосовых в боте: не дольше минуты
+  let state = "idle";
+  let ctx = null, analyser = null, data = null, micStream = null, recorder = null, chunks = [];
+  let recStart = 0, maxTimer = null, level = 0;
+
+  function haptic(kind) { try { tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred(kind); } catch (e) {} }
+
+  function setSub(text, cls) { el.sub.textContent = text || ""; el.sub.className = "sub" + (cls ? " " + cls : ""); }
+
+  function setState(s, sub, cls) {
+    state = s;
+    const texts = { idle: T.idle, listening: T.listening, thinking: T.thinking, speaking: T.speaking };
+    el.status.textContent = texts[s];
+    if (sub !== undefined) setSub(sub, cls);
+    else setSub(s === "idle" ? T.idleSub : s === "listening" ? T.listeningSub : "");
+    el.mic.classList.toggle("rec", s === "listening");
+    el.mic.textContent = s === "listening" ? "⏹" : "🎙";
+    el.btnLabel.textContent = s === "listening" ? T.stop : T.start;
+    el.mic.disabled = s === "thinking" || s === "speaking";
+  }
+
+  function diag(extra) {
+    const mr = typeof window.MediaRecorder !== "undefined";
+    const gum = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    el.diag.textContent = [
+      tg ? `Telegram ${tg.platform || "?"} ${tg.version || ""}` : "browser",
+      `mic:${gum ? "yes" : "no"}`, `rec:${mr ? "yes" : "no"}`, extra || "",
+    ].filter(Boolean).join(" · ");
+  }
+  diag();
+
+  // ───────── уровень громкости (микрофон или голос бота) ─────────
+  function readLevel() {
+    if (!analyser) return 0;
+    analyser.getByteTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; }
+    return Math.min(1, Math.sqrt(sum / data.length) * 4.5);
+  }
+
+  function makeAnalyser() {
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    data = new Uint8Array(analyser.fftSize);
+    return analyser;
+  }
+
+  // ───────── запись ─────────
+  async function startRec() {
+    if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) || typeof MediaRecorder === "undefined") {
+      setState("idle", T.noMic, "err"); diag("no-api"); return;
+    }
+    try {
+      ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === "suspended") await ctx.resume();   // звук разрешён только после нажатия — нажатие есть
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    } catch (e) {
+      const denied = e && (e.name === "NotAllowedError" || e.name === "SecurityError" || e.name === "PermissionDeniedError");
+      setState("idle", denied ? T.denied : T.fail + (e && e.name || e), "err"); diag(e && e.name); return;
+    }
+    ctx.createMediaStreamSource(micStream).connect(makeAnalyser());
+    const types = ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus", "audio/webm"];
+    const mime = types.find((m) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) || "";
+    try {
+      recorder = mime ? new MediaRecorder(micStream, { mimeType: mime }) : new MediaRecorder(micStream);
+    } catch (e) {
+      stopMic(); setState("idle", T.fail + (e && e.name || e), "err"); diag("recorder:" + (e && e.name)); return;
+    }
+    chunks = [];
+    recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    recorder.onstop = onRecorded;
+    recorder.start();
+    recStart = performance.now();
+    diag(recorder.mimeType || mime || "default");
+    haptic("medium");
+    setState("listening");
+    maxTimer = setTimeout(stopRec, MAX_MS);
+  }
+
+  function stopMic() {
+    if (micStream) micStream.getTracks().forEach((t) => t.stop());
+    micStream = null;
+  }
+
+  function stopRec() {
+    clearTimeout(maxTimer);
+    if (recorder && recorder.state === "recording") recorder.stop();
+    stopMic();
+    haptic("light");
+  }
+
+  function decode(buf) {
+    return new Promise((resolve, reject) => {
+      const p = ctx.decodeAudioData(buf, resolve, reject);
+      if (p && p.then) p.then(resolve, reject);
+    });
+  }
+
+  async function onRecorded() {
+    analyser = null;
+    if (performance.now() - recStart < 700 || !chunks.length) { setState("idle", T.short, "err"); return; }
+    setState("thinking");
+    try {
+      const blob = new Blob(chunks, { type: (recorder && recorder.mimeType) || "audio/webm" });
+      const audio = await decode(await blob.arrayBuffer());
+      await new Promise((r) => setTimeout(r, 900));   // «думает»
+      speak(audio);
+    } catch (e) {
+      setState("idle", T.fail + (e && e.name || e), "err"); diag("decode:" + (e && e.name));
+    }
+  }
+
+  // ───────── бот «говорит»: рот по громкости звука ─────────
+  function speak(audioBuffer) {
+    const src = ctx.createBufferSource();
+    src.buffer = audioBuffer;
+    src.connect(makeAnalyser());
+    analyser.connect(ctx.destination);
+    src.onended = () => { analyser = null; setState("idle", T.ok, "ok"); };
+    setState("speaking");
+    src.start();
+  }
+
+  el.mic.addEventListener("click", () => {
+    if (state === "idle") startRec();
+    else if (state === "listening") stopRec();
+  });
+
+  // ───────── анимация ─────────
+  let blinkUntil = 0, nextBlink = performance.now() + 1500;
+  let look = { x: 0, y: 0 }, lookTarget = { x: 0, y: 0 }, nextLook = 0;
+  let mouthOpen = 0;
+  const arcs = [];
+  let lastArc = 0;
+
+  function scheduleBlink(now) {
+    nextBlink = now + 2200 + Math.random() * 3800;
+    if (Math.random() < 0.2) nextBlink = now + 260;      // иногда моргает дважды
+  }
+
+  function addArc(side, strength) {
+    const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    p.setAttribute("fill", "none");
+    p.setAttribute("stroke", "#67e8f9");
+    p.setAttribute("stroke-linecap", "round");
+    el.waves.appendChild(p);
+    arcs.push({ el: p, side, t: 0, s: strength });
+  }
+
+  function drawArcs(dt) {
+    for (let i = arcs.length - 1; i >= 0; i--) {
+      const a = arcs[i];
+      a.t += dt / 650;
+      if (a.t >= 1) { a.el.remove(); arcs.splice(i, 1); continue; }
+      const h = 9 + a.s * 16 * (1 - a.t * 0.4);
+      const y = 140;
+      // волна летит снаружи к уху: левое ухо ~ x=32, правое ~ x=268
+      const x = a.side < 0 ? 2 + a.t * 28 : 298 - a.t * 28;
+      const sweep = a.side < 0 ? 1 : 0;
+      a.el.setAttribute("d", `M ${x} ${y - h} A ${h * 1.3} ${h * 1.3} 0 0 ${sweep} ${x} ${y + h}`);
+      a.el.setAttribute("stroke-width", (2 + a.s * 3).toFixed(1));
+      a.el.setAttribute("opacity", (Math.sin(a.t * Math.PI) * (0.45 + a.s * 0.55)).toFixed(2));
+    }
+  }
+
+  let prev = performance.now();
+  function frame(now) {
+    const dt = Math.min(64, now - prev); prev = now;
+    const raw = demoLevel !== null ? demoLevel * (0.6 + 0.4 * Math.abs(Math.sin(now / 90)))
+      : (state === "listening" || state === "speaking") ? readLevel() : 0;
+    level += (raw - level) * (raw > level ? 0.5 : 0.18);
+
+    // покачивание и «дыхание»
+    const bob = Math.sin(now / 900) * 3;
+    const lean = state === "listening" ? 1.03 : 1;
+    el.bot.setAttribute("transform", `translate(150 ${140 + bob}) scale(${lean}) translate(-150 -140)`);
+    el.shadow.setAttribute("rx", (78 - bob).toFixed(1));
+
+    // куда смотрит
+    if (state === "thinking") lookTarget = { x: 7, y: -8 };
+    else if (state === "listening") lookTarget = { x: 0, y: 2 };
+    else if (state === "speaking") lookTarget = { x: 0, y: 0 };
+    else if (now > nextLook) {
+      lookTarget = { x: (Math.random() - 0.5) * 12, y: (Math.random() - 0.5) * 6 };
+      nextLook = now + 1500 + Math.random() * 2500;
+    }
+    look.x += (lookTarget.x - look.x) * 0.12;
+    look.y += (lookTarget.y - look.y) * 0.12;
+    el.eyes.setAttribute("transform", `translate(${look.x.toFixed(2)} ${look.y.toFixed(2)})`);
+
+    // моргание
+    if (now > nextBlink) { blinkUntil = now + 140; scheduleBlink(now); }
+    const blink = now < blinkUntil ? 0.08 : (state === "listening" ? 1.08 : 1);
+    for (const [eye, cx] of [[el.eyeL, 120], [el.eyeR, 180]]) {
+      eye.setAttribute("transform", `translate(${cx} 128) scale(1 ${blink}) translate(${-cx} -128)`);
+    }
+
+    // рот: открывается только когда бот говорит
+    const target = state === "speaking" ? level : 0;
+    mouthOpen += (target - mouthOpen) * 0.45;
+    const talking = mouthOpen > 0.04;
+    el.smile.setAttribute("opacity", talking ? 0 : 1);
+    el.mouth.setAttribute("opacity", talking ? 1 : 0);
+    el.mouth.setAttribute("rx", (15 + mouthOpen * 7).toFixed(1));
+    el.mouth.setAttribute("ry", (2 + mouthOpen * 15).toFixed(1));
+    el.tongue.setAttribute("opacity", mouthOpen > 0.35 ? 0.9 : 0);
+    el.tongue.setAttribute("ry", (mouthOpen * 5).toFixed(1));
+    el.tongue.setAttribute("cy", (172 + mouthOpen * 9).toFixed(1));
+
+    // уши светятся и в них летят волны, когда человек говорит
+    const ear = state === "listening" ? 0.15 + level * 0.85 : 0;
+    el.earL.setAttribute("opacity", ear.toFixed(2));
+    el.earR.setAttribute("opacity", ear.toFixed(2));
+    if (state === "listening" && level > 0.06 && now - lastArc > 170 - level * 90) {
+      addArc(-1, level); addArc(1, level); lastArc = now;
+    }
+    drawArcs(dt);
+
+    // лампочка: мигает, когда думает; светится, когда говорит
+    let bulb = 0.15;
+    if (state === "thinking") bulb = 0.5 + 0.5 * Math.sin(now / 140);
+    else if (state === "speaking") bulb = 0.3 + level * 0.7;
+    else if (state === "listening") bulb = 0.35;
+    el.bulbGlow.setAttribute("opacity", bulb.toFixed(2));
+    el.bulb.setAttribute("fill", bulb > 0.3 ? "#67e8f9" : "#c4b5fd");
+
+    requestAnimationFrame(frame);
+  }
+
+  // Только для проверки внешнего вида без микрофона (?demo=1): MarketGuru.demo("speaking", 0.8)
+  let demoLevel = null;
+  if (params.get("demo")) {
+    window.MarketGuru = { demo(s, lvl) { demoLevel = lvl === undefined ? null : lvl; setState(s); } };
+  }
+
+  setState("idle");
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
