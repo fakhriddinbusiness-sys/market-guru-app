@@ -1,12 +1,13 @@
 <!doctype html>
 <!--
   🎙 Мини-приложение «Поговорить с Market Guru» для бота @Market_Guru_Uz_Bot.
-  Этап 1 (проверка): анимированный помощник + микрофон. Когда человек говорит — к ушам бота летят звуковые волны
-  и уши светятся («слышит»); потом бот «думает» (глаза вверх, лампочка мигает) и «говорит» — рот двигается в такт
-  звуку. Пока своего голоса нет: для проверки бот проигрывает запись человека (проверяем запись и звук в Telegram).
-  Этап 2: вместо повтора — распознавание → ответ ИИ → озвучка (через сервер бота).
-  Параметры ссылки: ?lang=ru|uz. Ключей и данных на странице нет — она лежит на открытом GitHub Pages
-  (репозиторий market-guru-app). После правок: скопировать файл в market-guru-app и отправить (Push).
+  Анимированный помощник: когда человек говорит — к ушам бота летят звуковые волны и уши светятся («слышит»);
+  бот «думает» (глаза вверх, лампочка мигает) и «говорит» — рот двигается в такт его голосу; моргает всегда.
+  Разговор: запись → сервер бота (talk_server.py, адрес в ?api=…, через туннель) → распознавание → ответ ИИ →
+  озвучка. Без ?api= — режим проверки: бот повторяет запись человека (проверка микрофона и звука в Telegram).
+  Параметры ссылки: ?lang=ru|uz&api=https://… Ключей и данных на странице нет — она лежит на открытом GitHub Pages
+  (репозиторий market-guru-app); сервер сам проверяет подпись Telegram (initData).
+  После правок: скопировать файл в market-guru-app и отправить (Push).
 -->
 <html lang="ru">
 <head>
@@ -44,6 +45,10 @@
   .mic.rec { background: var(--rec); box-shadow: 0 0 0 var(--ring, 6px) rgba(239, 68, 68, .25); }
   .mic:disabled { opacity: .45; }
   .btn-label { margin-top: 8px; font-size: 14px; color: var(--hint); }
+  .bubble { width: 100%; max-height: 32vh; overflow-y: auto; background: var(--card); border-radius: 16px;
+            padding: 10px 14px; margin: 0 0 8px; font-size: 15px; white-space: pre-wrap; display: none;
+            -webkit-user-select: text; user-select: text; }
+  .bubble .heard { color: var(--hint); font-size: 13px; margin-bottom: 6px; }
   .note { margin-top: 12px; font-size: 12px; color: var(--hint); text-align: center; max-width: 360px; }
   .diag { margin-top: 6px; font-size: 11px; color: var(--hint); opacity: .7; text-align: center; }
 </style>
@@ -108,6 +113,7 @@
     </svg>
   </div>
 
+  <div class="bubble" id="bubble"><div class="heard" id="heard"></div><div id="answer"></div></div>
   <div class="status" id="status"></div>
   <div class="sub" id="sub"></div>
   <button class="mic" id="mic" aria-label="mic">🎙</button>
@@ -139,6 +145,23 @@
       denied: "Нет доступа к микрофону. Разрешите его для Telegram в настройках телефона и откройте окно снова.",
       short: "Слишком коротко — скажите чуть дольше.",
       fail: "Не получилось: ",
+      idleLive: "Задайте вопрос голосом — отвечу голосом и текстом",
+      noteLive: "Говорите коротко, до 1 минуты. Цифры и расчёты удобнее смотреть в чате бота.",
+      thinkingLive: "Думаю над ответом…", speakingLive: "Отвечаю",
+      heard: "🎤 Вы сказали: ", againSub: "Можно спросить ещё",
+      errors: {
+        auth: "Откройте окно заново из бота: команда /talk.",
+        closed: "Разговор голосом пока закрыт — скоро откроем!",
+        ai_off: "ИИ-помощник пока не подключён.",
+        stt_off: "Распознавание голоса пока не подключено.",
+        limit: "На сегодня лимит вопросов исчерпан. Возвращайтесь завтра!",
+        too_long: "Слишком длинно — уложитесь в 1 минуту.",
+        no_audio: "Запись пустая — попробуйте ещё раз.",
+        not_heard: "Не разобрал слова. Скажите чуть громче и ближе к телефону.",
+        stt_error: "Не получилось распознать. Попробуйте ещё раз через минуту.",
+        ai_error: "Не получилось ответить. Попробуйте ещё раз через минуту.",
+        network: "Нет связи с ботом. Проверьте интернет или откройте окно заново (/talk).",
+      },
     },
     uz: {
       idle: "Salom! Men Market Guru", idleSub: "Tugmani bosing va biror narsa ayting",
@@ -151,6 +174,23 @@
       denied: "Mikrofonga ruxsat yo'q. Telefon sozlamalarida Telegram'ga ruxsat bering va oynani qayta oching.",
       short: "Juda qisqa — biroz uzoqroq gapiring.",
       fail: "Bo'lmadi: ",
+      idleLive: "Savolingizni ovoz bilan bering — ovoz va matn bilan javob beraman",
+      noteLive: "Qisqa gapiring, 1 daqiqagacha. Raqam va hisob-kitoblarni bot chatida ko'rish qulayroq.",
+      thinkingLive: "Javob ustida o'ylayapman…", speakingLive: "Javob beryapman",
+      heard: "🎤 Siz aytdingiz: ", againSub: "Yana so'rashingiz mumkin",
+      errors: {
+        auth: "Oynani botdan qayta oching: /talk buyrug'i.",
+        closed: "Ovozli suhbat hozircha yopiq — tez orada ochamiz!",
+        ai_off: "AI-yordamchi hali ulanmagan.",
+        stt_off: "Ovozni tanish hali ulanmagan.",
+        limit: "Bugungi savollar limiti tugadi. Ertaga qayting!",
+        too_long: "Juda uzun — 1 daqiqaga sig'diring.",
+        no_audio: "Yozuv bo'sh — qayta urinib ko'ring.",
+        not_heard: "So'zlarni tushunmadim. Biroz balandroq va telefonga yaqinroq gapiring.",
+        stt_error: "Tanib bo'lmadi. Bir daqiqadan so'ng qayta urinib ko'ring.",
+        ai_error: "Javob bera olmadim. Bir daqiqadan so'ng qayta urinib ko'ring.",
+        network: "Bot bilan aloqa yo'q. Internetni tekshiring yoki oynani qayta oching (/talk).",
+      },
     },
   }[lang];
 
@@ -160,8 +200,21 @@
     tongue: $("tongue"), bulb: $("bulb"), bulbGlow: $("bulbGlow"), earL: $("earGlowL"), earR: $("earGlowR"),
     waves: $("waves"), shadow: $("shadow"), status: $("status"), sub: $("sub"), mic: $("mic"),
     btnLabel: $("btnLabel"), note: $("note"), diag: $("diag"),
+    bubble: $("bubble"), heard: $("heard"), answer: $("answer"),
   };
+  // Адрес сервера бота (через туннель). Принимаем только https — без него режим проверки.
+  const API = (params.get("api") || "").startsWith("https://") ? params.get("api").replace(/\/+$/, "") : "";
+  if (API) {
+    T.idleSub = T.idleLive; T.note = T.noteLive; T.thinking = T.thinkingLive; T.speaking = T.speakingLive;
+  }
   el.note.textContent = T.note;
+
+  function showBubble(heard, answer) {
+    el.heard.textContent = heard ? T.heard + "«" + heard + "»" : "";
+    el.answer.textContent = answer || "";
+    el.bubble.style.display = heard || answer ? "block" : "none";
+    el.bubble.scrollTop = 0;
+  }
 
   const MAX_MS = 60000;   // как у голосовых в боте: не дольше минуты
   let state = "idle";
@@ -188,7 +241,7 @@
     const mr = typeof window.MediaRecorder !== "undefined";
     const gum = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
     el.diag.textContent = [
-      tg ? `Telegram ${tg.platform || "?"} ${tg.version || ""}` : "browser",
+      tg ? `Telegram ${tg.platform || "?"} ${tg.version || ""}` : "browser", API ? "live" : "test",
       `mic:${gum ? "yes" : "no"}`, `rec:${mr ? "yes" : "no"}`, extra || "",
     ].filter(Boolean).join(" · ");
   }
@@ -265,23 +318,61 @@
     analyser = null;
     if (performance.now() - recStart < 700 || !chunks.length) { setState("idle", T.short, "err"); return; }
     setState("thinking");
+    const blob = new Blob(chunks, { type: (recorder && recorder.mimeType) || "audio/webm" });
+    if (API) { ask(blob); return; }
     try {
-      const blob = new Blob(chunks, { type: (recorder && recorder.mimeType) || "audio/webm" });
       const audio = await decode(await blob.arrayBuffer());
       await new Promise((r) => setTimeout(r, 900));   // «думает»
-      speak(audio);
+      speak(audio, () => setState("idle", T.ok, "ok"));
     } catch (e) {
       setState("idle", T.fail + (e && e.name || e), "err"); diag("decode:" + (e && e.name));
     }
   }
 
+  // ───────── разговор: запись → бот → ответ текстом и голосом ─────────
+  async function ask(blob) {
+    showBubble("", "");
+    const form = new FormData();
+    const type = (blob.type || "audio/webm").split(";")[0];
+    form.append("audio", blob, "voice." + (type.split("/")[1] || "webm"));
+    form.append("init_data", (tg && tg.initData) || "");
+    form.append("lang", lang);
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 90000);
+    let res;
+    try {
+      const r = await fetch(API + "/api/talk", { method: "POST", body: form, signal: abort.signal });
+      res = await r.json();
+    } catch (e) {
+      res = { ok: false, error: "network" };
+      diag("net:" + (e && e.name));
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) {
+      setState("idle", T.errors[res.error] || (T.fail + res.error), "err");
+      haptic("heavy");
+      return;
+    }
+    showBubble(res.heard, res.answer);
+    if (!res.audio) { setState("idle", T.againSub); return; }   // на этом языке озвучки нет — только текст
+    try {
+      const bin = atob(res.audio);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      speak(await decode(bytes.buffer), () => setState("idle", T.againSub));
+    } catch (e) {
+      setState("idle", T.againSub); diag("play:" + (e && e.name));
+    }
+  }
+
   // ───────── бот «говорит»: рот по громкости звука ─────────
-  function speak(audioBuffer) {
+  function speak(audioBuffer, onEnd) {
     const src = ctx.createBufferSource();
     src.buffer = audioBuffer;
     src.connect(makeAnalyser());
     analyser.connect(ctx.destination);
-    src.onended = () => { analyser = null; setState("idle", T.ok, "ok"); };
+    src.onended = () => { analyser = null; onEnd(); };
     setState("speaking");
     src.start();
   }
