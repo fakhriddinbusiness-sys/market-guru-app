@@ -42,7 +42,8 @@
          display: flex; flex-direction: column; align-items: center; }
   .stage { flex: 1; width: 100%; display: flex; align-items: center; justify-content: center; min-height: 0; }
   /* Лицо: квадрат на всё свободное место; края мягко растворяются в фоне */
-  .face { position: relative; height: 100%; max-width: 100%; aspect-ratio: 1 / 1; will-change: transform, filter;
+  /* Размер — квадрат по меньшей стороне свободного места (ставит fitFace), иначе картинку тянет в высоту */
+  .face { position: relative; width: 300px; height: 300px; flex: none; will-change: transform, filter;
           -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 47%, #000 58%, transparent 99%);
           mask-image: radial-gradient(ellipse 50% 50% at 50% 47%, #000 58%, transparent 99%); }
   .face img { position: absolute; display: block; pointer-events: none; }
@@ -506,6 +507,16 @@
   resize();
   window.addEventListener("resize", resize);
 
+  // Лицо — всегда квадрат по меньшей стороне свободного места (без растяжения)
+  const stage = el.face.parentElement;
+  function fitFace() {
+    const side = Math.max(120, Math.floor(Math.min(stage.clientWidth, stage.clientHeight)));
+    el.face.style.width = el.face.style.height = side + "px";
+  }
+  fitFace();
+  window.addEventListener("resize", fitFace);
+  if (window.ResizeObserver) new ResizeObserver(fitFace).observe(stage);
+
   // Фон: медленно плывущие мерцающие частицы (как на картинке) + мягкое свечение за лицом
   const stars = Array.from({ length: 70 }, () => ({
     x: Math.random(), y: Math.random(), r: 0.4 + Math.random() * 1.6, s: 0.002 + Math.random() * 0.006,
@@ -576,10 +587,13 @@
 
     // эффекты поверх
     fxc.clearRect(0, 0, VW, VH);
-    // 🎙 слушает: частицы-звук текут снизу к лицу
+    // 🎙 слушает: частицы-звук летят снаружи к УШАМ (по бокам головы, на уровне глаз) и там мягко светятся
+    const earY = F.y - F.h * 0.06, earDX = F.w * 0.34;
     if (state === "listening" && level > 0.04 && flow.length < 140) {
       for (let i = 0; i < 1 + Math.round(level * 4); i++) {
-        flow.push({ x: F.x + (Math.random() - 0.5) * F.w * 0.9, y: F.y + F.h * 0.65 + Math.random() * 20,
+        const side = Math.random() < 0.5 ? -1 : 1;
+        flow.push({ side, x: F.x + side * (F.w * (0.55 + Math.random() * 0.25)),
+                    y: earY + (Math.random() - 0.5) * F.h * 0.5,
                     t: 0, s: 0.6 + Math.random() * 0.8, r: 1 + Math.random() * 2 * (0.5 + level) });
       }
     }
@@ -587,10 +601,21 @@
       const p = flow[i];
       p.t += dt / 900 * p.s;
       if (p.t >= 1) { flow.splice(i, 1); continue; }
-      const k = p.t * p.t;   // ускоряются к лицу
-      const x = p.x + (F.x - p.x) * k, y = p.y + (F.y + F.h * 0.08 - p.y) * k;
+      const k = p.t * p.t;   // ускоряются к уху
+      const tx = F.x + p.side * earDX;
+      const x = p.x + (tx - p.x) * k, y = p.y + (earY - p.y) * k;
       fxc.fillStyle = `rgba(120, 200, 255, ${(Math.sin(p.t * Math.PI) * 0.9).toFixed(2)})`;
       fxc.beginPath(); fxc.arc(x, y, p.r, 0, Math.PI * 2); fxc.fill();
+    }
+    if (state === "listening") {
+      for (const side of [-1, 1]) {
+        const ex = F.x + side * earDX, rr = F.w * (0.07 + level * 0.06);
+        const eg = fxc.createRadialGradient(ex, earY, 0, ex, earY, rr);
+        eg.addColorStop(0, `rgba(150, 215, 255, ${(0.25 + level * 0.5).toFixed(2)})`);
+        eg.addColorStop(1, "rgba(103, 183, 255, 0)");
+        fxc.fillStyle = eg;
+        fxc.beginPath(); fxc.arc(ex, earY, rr, 0, Math.PI * 2); fxc.fill();
+      }
     }
     // 🎧 распознаёт: светлый луч пробегает по лицу сверху вниз
     if (state === "recognizing") {
