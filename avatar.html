@@ -30,28 +30,30 @@
   body { margin: 0; background: var(--bg); color: var(--text); overflow: hidden;
          font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
          -webkit-user-select: none; user-select: none; }
-  main { height: 100%; max-width: 520px; margin: 0 auto; padding: 12px 16px 20px;
+  /* Главное на экране — лицо: оно забирает всё свободное место, остальное — компактно внизу */
+  main { height: 100%; max-width: 560px; margin: 0 auto; padding: 4px 12px 10px;
          display: flex; flex-direction: column; align-items: center; }
   .stage { flex: 1; width: 100%; display: flex; align-items: center; justify-content: center; min-height: 0; }
-  svg { width: 100%; max-width: 340px; max-height: 100%; overflow: visible; }
-  .status { min-height: 48px; text-align: center; font-size: 18px; font-weight: 600; margin: 4px 0 2px; }
-  .sub { min-height: 40px; text-align: center; font-size: 14px; color: var(--hint); margin: 0 0 14px; }
+  svg { width: 100%; height: 100%; overflow: visible; }
+  .status { min-height: 20px; text-align: center; font-size: 15px; font-weight: 600; margin: 2px 0 0; }
+  .sub { min-height: 18px; text-align: center; font-size: 12px; color: var(--hint); margin: 0 0 8px; }
   .sub.err { color: var(--rec); }
   .sub.ok { color: #1aa260; }
-  .mic { width: 88px; height: 88px; border-radius: 50%; border: 0; background: var(--accent);
-         color: var(--accent-text); font-size: 34px; cursor: pointer; position: relative;
-         box-shadow: 0 6px 18px rgba(123, 47, 247, .35); transition: transform .15s, background .2s, opacity .2s; }
+  .mic { width: 64px; height: 64px; border-radius: 50%; border: 0; background: var(--accent);
+         color: var(--accent-text); font-size: 26px; cursor: pointer; position: relative;
+         box-shadow: 0 4px 14px rgba(123, 47, 247, .35); transition: transform .15s, background .2s, opacity .2s; }
   .mic:active { transform: scale(.94); }
   .mic.rec { background: var(--rec); box-shadow: 0 0 0 var(--ring, 6px) rgba(239, 68, 68, .25); }
   .mic:disabled { opacity: .45; }
-  .btn-label { margin-top: 8px; font-size: 14px; color: var(--hint); }
-  /* Коротко под лицом: 2 строки ответа; нажатие — весь текст на весь экран */
-  .bubble { width: 100%; background: var(--card); border-radius: 14px; padding: 8px 12px; margin: 0 0 6px;
-            font-size: 14px; display: none; cursor: pointer; }
-  .clamp { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
-  .bubble .heard { color: var(--hint); font-size: 12px; -webkit-line-clamp: 1; margin-bottom: 2px; }
-  .bubble .short { -webkit-line-clamp: 2; }
-  .bubble .more { color: var(--accent); font-size: 13px; font-weight: 600; margin-top: 4px; }
+  .btn-label { margin-top: 3px; font-size: 12px; color: var(--hint); }
+  /* Под лицом — одна строка ответа; нажатие — весь текст на весь экран */
+  .bubble { width: 100%; background: var(--card); border-radius: 12px; padding: 6px 10px; margin: 0 0 4px;
+            font-size: 13px; display: none; cursor: pointer; }
+  .clamp { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; -webkit-line-clamp: 1; }
+  .bubble .heard { color: var(--hint); font-size: 11px; }
+  .bubble .row { display: flex; align-items: baseline; gap: 8px; }
+  .bubble .short { flex: 1; min-width: 0; }
+  .bubble .more { color: var(--accent); font-size: 12px; font-weight: 600; white-space: nowrap; }
   .sheet { position: fixed; inset: 0; background: var(--bg); z-index: 10; display: none; flex-direction: column; }
   .sheet.open { display: flex; }
   .sheet-head { display: flex; justify-content: flex-end; padding: 10px 12px; border-bottom: 1px solid var(--card); }
@@ -61,18 +63,19 @@
                 white-space: pre-wrap; -webkit-user-select: text; user-select: text; }
   .sheet-body .heard { color: var(--hint); font-size: 14px; margin-bottom: 12px; }
   .controls { display: flex; align-items: center; justify-content: center; gap: 18px; }
-  .stop { width: 56px; height: 56px; border-radius: 50%; border: 0; background: var(--card); color: var(--text);
-          font-size: 22px; cursor: pointer; display: none; }
+  .stop { width: 46px; height: 46px; border-radius: 50%; border: 0; background: var(--card); color: var(--text);
+          font-size: 18px; cursor: pointer; display: none; }
   .stop.show { display: block; }
   .stop:active { transform: scale(.94); }
-  .note { margin-top: 12px; font-size: 12px; color: var(--hint); text-align: center; max-width: 360px; }
-  .diag { margin-top: 6px; font-size: 11px; color: var(--hint); opacity: .7; text-align: center; }
+  .note { margin-top: 6px; font-size: 11px; color: var(--hint); text-align: center; max-width: 360px; }
+  .note:empty { display: none; }
+  .diag { margin-top: 2px; font-size: 9px; color: var(--hint); opacity: .5; text-align: center; }
 </style>
 </head>
 <body>
 <main>
   <div class="stage">
-    <svg id="scene" viewBox="0 0 300 290" aria-label="Market Guru">
+    <svg id="scene" viewBox="0 2 300 264" aria-label="Market Guru">
       <defs>
         <linearGradient id="headGrad" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stop-color="#9b6bff"/>
@@ -130,8 +133,8 @@
   </div>
 
   <div class="bubble" id="bubble">
-    <div class="heard clamp" id="heard"></div><div class="short clamp" id="answer"></div>
-    <div class="more" id="more"></div>
+    <div class="heard clamp" id="heard"></div>
+    <div class="row"><div class="short clamp" id="answer"></div><div class="more" id="more"></div></div>
   </div>
   <div class="status" id="status"></div>
   <div class="sub" id="sub"></div>
@@ -208,7 +211,7 @@
       thinkingLive: "Javob ustida o'ylayapman…", speakingLive: "Javob beryapman",
       heard: "🎤 Siz aytdingiz: ", againSub: "Yana so'rashingiz mumkin",
       interrupt: "Gapni bo'lish", speakingSub: "⏹ — jim bo'lish, 🎙 — gapni bo'lib, o'zingiz aytish",
-      more: "Javobni to'liq ko'rish ›", close: "✕ Yopish",
+      more: "To'liq ›", close: "✕ Yopish",
       errors: {
         auth: "Oynani bot menyusidan qayta oching.",
         closed: "Ovozli suhbat hozircha yopiq — tez orada ochamiz!",
@@ -244,7 +247,7 @@
     if (API) {
       T.idleSub = T.idleLive; T.note = T.noteLive; T.thinking = T.thinkingLive; T.speaking = T.speakingLive;
     }
-    el.note.textContent = T.note;
+    el.note.textContent = API ? "" : T.note;   // в разговоре подсказку не показываем — место для лица
     el.more.textContent = T.more;
     el.sheetClose.textContent = T.close;
     const h = el.sheetHeard.dataset.text;   // «Вы сказали» — тоже на новом языке
