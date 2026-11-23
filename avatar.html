@@ -45,10 +45,26 @@
   .mic.rec { background: var(--rec); box-shadow: 0 0 0 var(--ring, 6px) rgba(239, 68, 68, .25); }
   .mic:disabled { opacity: .45; }
   .btn-label { margin-top: 8px; font-size: 14px; color: var(--hint); }
-  .bubble { width: 100%; max-height: 32vh; overflow-y: auto; background: var(--card); border-radius: 16px;
-            padding: 10px 14px; margin: 0 0 8px; font-size: 15px; white-space: pre-wrap; display: none;
-            -webkit-user-select: text; user-select: text; }
-  .bubble .heard { color: var(--hint); font-size: 13px; margin-bottom: 6px; }
+  /* Коротко под лицом: 2 строки ответа; нажатие — весь текст на весь экран */
+  .bubble { width: 100%; background: var(--card); border-radius: 14px; padding: 8px 12px; margin: 0 0 6px;
+            font-size: 14px; display: none; cursor: pointer; }
+  .clamp { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+  .bubble .heard { color: var(--hint); font-size: 12px; -webkit-line-clamp: 1; margin-bottom: 2px; }
+  .bubble .short { -webkit-line-clamp: 2; }
+  .bubble .more { color: var(--accent); font-size: 13px; font-weight: 600; margin-top: 4px; }
+  .sheet { position: fixed; inset: 0; background: var(--bg); z-index: 10; display: none; flex-direction: column; }
+  .sheet.open { display: flex; }
+  .sheet-head { display: flex; justify-content: flex-end; padding: 10px 12px; border-bottom: 1px solid var(--card); }
+  .sheet-close { border: 0; background: var(--card); color: var(--text); border-radius: 18px; padding: 8px 16px;
+                 font-size: 15px; cursor: pointer; }
+  .sheet-body { flex: 1; overflow-y: auto; padding: 14px 18px 30px; font-size: 17px; line-height: 1.5;
+                white-space: pre-wrap; -webkit-user-select: text; user-select: text; }
+  .sheet-body .heard { color: var(--hint); font-size: 14px; margin-bottom: 12px; }
+  .controls { display: flex; align-items: center; justify-content: center; gap: 18px; }
+  .stop { width: 56px; height: 56px; border-radius: 50%; border: 0; background: var(--card); color: var(--text);
+          font-size: 22px; cursor: pointer; display: none; }
+  .stop.show { display: block; }
+  .stop:active { transform: scale(.94); }
   .note { margin-top: 12px; font-size: 12px; color: var(--hint); text-align: center; max-width: 360px; }
   .diag { margin-top: 6px; font-size: 11px; color: var(--hint); opacity: .7; text-align: center; }
 </style>
@@ -113,14 +129,24 @@
     </svg>
   </div>
 
-  <div class="bubble" id="bubble"><div class="heard" id="heard"></div><div id="answer"></div></div>
+  <div class="bubble" id="bubble">
+    <div class="heard clamp" id="heard"></div><div class="short clamp" id="answer"></div>
+    <div class="more" id="more"></div>
+  </div>
   <div class="status" id="status"></div>
   <div class="sub" id="sub"></div>
-  <button class="mic" id="mic" aria-label="mic">🎙</button>
+  <div class="controls">
+    <button class="stop" id="stop" aria-label="stop">⏹</button>
+    <button class="mic" id="mic" aria-label="mic">🎙</button>
+  </div>
   <div class="btn-label" id="btnLabel"></div>
   <div class="note" id="note"></div>
   <div class="diag" id="diag"></div>
 </main>
+<div class="sheet" id="sheet">
+  <div class="sheet-head"><button class="sheet-close" id="sheetClose"></button></div>
+  <div class="sheet-body"><div class="heard" id="sheetHeard"></div><div id="sheetAnswer"></div></div>
+</div>
 
 <script>
 (() => {
@@ -130,10 +156,11 @@
   const params = new URLSearchParams(location.search);
   const code = params.get("lang") || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user &&
                                       tg.initDataUnsafe.user.language_code) || "ru";
-  const lang = String(code).startsWith("uz") ? "uz" : "ru";
-  document.documentElement.lang = lang;
+  // Язык окна: сначала — как выбран в боте; после ответа — язык, на котором человек говорит (язык ответа ИИ).
+  let lang = String(code).startsWith("uz") ? "uz" : "ru";
+  let T;
 
-  const T = {
+  const TEXTS = {
     ru: {
       idle: "Привет! Я Market Guru", idleSub: "Нажмите на кнопку и скажите что-нибудь",
       start: "Говорить", stop: "Готово",
@@ -149,6 +176,8 @@
       noteLive: "Говорите коротко, до 1 минуты. Цифры и расчёты удобнее смотреть в чате бота.",
       thinkingLive: "Думаю над ответом…", speakingLive: "Отвечаю",
       heard: "🎤 Вы сказали: ", againSub: "Можно спросить ещё",
+      interrupt: "Перебить", speakingSub: "⏹ — замолчать, 🎙 — перебить и сказать своё",
+      more: "Весь ответ ›", close: "✕ Закрыть",
       errors: {
         auth: "Откройте окно заново из меню бота.",
         closed: "Разговор голосом пока закрыт — скоро откроем!",
@@ -178,6 +207,8 @@
       noteLive: "Qisqa gapiring, 1 daqiqagacha. Raqam va hisob-kitoblarni bot chatida ko'rish qulayroq.",
       thinkingLive: "Javob ustida o'ylayapman…", speakingLive: "Javob beryapman",
       heard: "🎤 Siz aytdingiz: ", againSub: "Yana so'rashingiz mumkin",
+      interrupt: "Gapni bo'lish", speakingSub: "⏹ — jim bo'lish, 🎙 — gapni bo'lib, o'zingiz aytish",
+      more: "Javobni to'liq ko'rish ›", close: "✕ Yopish",
       errors: {
         auth: "Oynani bot menyusidan qayta oching.",
         closed: "Ovozli suhbat hozircha yopiq — tez orada ochamiz!",
@@ -192,7 +223,7 @@
         network: "Bot bilan aloqa yo'q. Internetni tekshiring yoki oynani bot menyusidan qayta oching.",
       },
     },
-  }[lang];
+  };
 
   const $ = (id) => document.getElementById(id);
   const el = {
@@ -200,21 +231,42 @@
     tongue: $("tongue"), bulb: $("bulb"), bulbGlow: $("bulbGlow"), earL: $("earGlowL"), earR: $("earGlowR"),
     waves: $("waves"), shadow: $("shadow"), status: $("status"), sub: $("sub"), mic: $("mic"),
     btnLabel: $("btnLabel"), note: $("note"), diag: $("diag"),
-    bubble: $("bubble"), heard: $("heard"), answer: $("answer"),
+    bubble: $("bubble"), heard: $("heard"), answer: $("answer"), more: $("more"), stop: $("stop"),
+    sheet: $("sheet"), sheetClose: $("sheetClose"), sheetHeard: $("sheetHeard"), sheetAnswer: $("sheetAnswer"),
   };
   // Адрес сервера бота (через туннель). Принимаем только https — без него режим проверки.
   const API = (params.get("api") || "").startsWith("https://") ? params.get("api").replace(/\/+$/, "") : "";
-  if (API) {
-    T.idleSub = T.idleLive; T.note = T.noteLive; T.thinking = T.thinkingLive; T.speaking = T.speakingLive;
-  }
-  el.note.textContent = T.note;
 
-  function showBubble(heard, answer) {
-    el.heard.textContent = heard ? T.heard + "«" + heard + "»" : "";
-    el.answer.textContent = answer || "";
-    el.bubble.style.display = heard || answer ? "block" : "none";
-    el.bubble.scrollTop = 0;
+  function applyLang(l) {
+    lang = l === "uz" ? "uz" : "ru";
+    document.documentElement.lang = lang;
+    T = Object.assign({}, TEXTS[lang]);
+    if (API) {
+      T.idleSub = T.idleLive; T.note = T.noteLive; T.thinking = T.thinkingLive; T.speaking = T.speakingLive;
+    }
+    el.note.textContent = T.note;
+    el.more.textContent = T.more;
+    el.sheetClose.textContent = T.close;
+    const h = el.sheetHeard.dataset.text;   // «Вы сказали» — тоже на новом языке
+    if (h) el.heard.textContent = el.sheetHeard.textContent = T.heard + "«" + h + "»";
   }
+  applyLang(lang);
+
+  // Под лицом — коротко (2 строки), чтобы лицо было хорошо видно; нажатие — весь текст на весь экран.
+  function showBubble(heard, answer) {
+    const h = heard ? T.heard + "«" + heard + "»" : "";
+    el.sheetHeard.dataset.text = heard || "";
+    el.heard.textContent = el.sheetHeard.textContent = h;
+    el.answer.textContent = el.sheetAnswer.textContent = answer || "";
+    el.more.style.display = answer ? "block" : "none";
+    el.bubble.style.display = heard || answer ? "block" : "none";
+  }
+  el.bubble.addEventListener("click", () => {
+    if (!el.sheetAnswer.textContent) return;
+    el.sheet.classList.add("open");
+    el.sheet.querySelector(".sheet-body").scrollTop = 0;
+  });
+  el.sheetClose.addEventListener("click", () => el.sheet.classList.remove("open"));
 
   const MAX_MS = 60000;   // как у голосовых в боте: не дольше минуты
   let state = "idle";
@@ -230,11 +282,13 @@
     const texts = { idle: T.idle, listening: T.listening, thinking: T.thinking, speaking: T.speaking };
     el.status.textContent = texts[s];
     if (sub !== undefined) setSub(sub, cls);
-    else setSub(s === "idle" ? T.idleSub : s === "listening" ? T.listeningSub : "");
+    else setSub(s === "idle" ? T.idleSub : s === "listening" ? T.listeningSub
+                : s === "speaking" && API ? T.speakingSub : "");
     el.mic.classList.toggle("rec", s === "listening");
     el.mic.textContent = s === "listening" ? "⏹" : "🎙";
-    el.btnLabel.textContent = s === "listening" ? T.stop : T.start;
-    el.mic.disabled = s === "thinking" || s === "speaking";
+    el.btnLabel.textContent = s === "listening" ? T.stop : s === "speaking" ? T.interrupt : T.start;
+    el.mic.disabled = s === "thinking";
+    el.stop.classList.toggle("show", s === "speaking");   // ⏹ — замолчать, не задавая нового вопроса
   }
 
   function diag(extra) {
@@ -370,6 +424,7 @@
       haptic("heavy");
       return;
     }
+    if (res.answer_lang) applyLang(res.answer_lang);   // человек говорит по-узбекски — и окно по-узбекски
     showBubble(res.heard, res.answer);
     if (!res.audio) { setState("idle", T.againSub); return; }   // на этом языке озвучки нет — только текст
     try {
@@ -383,19 +438,38 @@
   }
 
   // ───────── бот «говорит»: рот по громкости звука ─────────
+  let speaking = null;   // звук, который бот сейчас говорит (чтобы можно было перебить)
+
   function speak(audioBuffer, onEnd) {
     const src = ctx.createBufferSource();
     src.buffer = audioBuffer;
     src.connect(makeAnalyser());
     analyser.connect(ctx.destination);
-    src.onended = () => { analyser = null; onEnd(); };
+    src.onended = () => { speaking = null; analyser = null; onEnd(); };
+    speaking = src;
     setState("speaking");
     src.start();
+  }
+
+  // Замолчать сразу (селлер перебил или нажал ⏹). onended не вызываем — дальше решает тот, кто перебил.
+  function hush() {
+    if (!speaking) return;
+    speaking.onended = null;
+    try { speaking.stop(); } catch (e) {}
+    speaking = null;
+    analyser = null;
   }
 
   el.mic.addEventListener("click", () => {
     if (state === "idle") startRec();
     else if (state === "listening") stopRec();
+    else if (state === "speaking") { hush(); startRec(); }   // перебить: бот замолкает и сразу слушает
+  });
+  el.stop.addEventListener("click", () => {
+    if (state !== "speaking") return;
+    hush();
+    haptic("light");
+    setState("idle", API ? T.againSub : T.ok, API ? "" : "ok");
   });
 
   // ───────── анимация ─────────
