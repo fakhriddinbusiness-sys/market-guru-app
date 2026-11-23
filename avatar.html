@@ -1,13 +1,17 @@
 <!doctype html>
 <!--
   🎙 Мини-приложение «Поговорить с Market Guru» для бота @Market_Guru_Uz_Bot.
-  Анимированный помощник: когда человек говорит — к ушам бота летят звуковые волны и уши светятся («слышит»);
-  бот «думает» (глаза вверх, лампочка мигает) и «говорит» — рот двигается в такт его голосу; моргает всегда.
-  Разговор: запись → сервер бота (talk_server.py, адрес в ?api=…, через туннель) → распознавание → ответ ИИ →
-  озвучка. Без ?api= — режим проверки: бот повторяет запись человека (проверка микрофона и звука в Telegram).
-  Параметры ссылки: ?lang=ru|uz&api=https://… Ключей и данных на странице нет — она лежит на открытом GitHub Pages
-  (репозиторий market-guru-app); сервер сам проверяет подпись Telegram (initData).
-  После правок: скопировать файл в market-guru-app и отправить (Push).
+  Лицо-голограмма (картинки из ChatGPT, папка face/): основа с закрытым ртом + накладки «рот приоткрыт»,
+  «рот открыт», «глаза закрыты». Когда бот говорит, накладки рта плавно проявляются по громкости его голоса;
+  моргает само. Фон — тёмно-синий в цвет картинки, края лица растворяются в нём, вокруг плавают частицы.
+  Человек говорит — к лицу текут голубые частицы-звук; распознаю — по лицу бежит луч; думаю — вокруг головы
+  кружат искры; готовлю голос — лицо мерцает. Шаги 🎧 → 🧠 → 🔊 под лицом.
+  Разговор: запись → сервер бота (talk_server.py, адрес в ?api=…, через туннель): /api/stt → /api/answer →
+  /api/speak. Без ?api= — режим проверки: бот повторяет запись человека.
+  Параметры ссылки: ?v=версия&lang=ru|uz&api=https://… Ключей и данных на странице нет — она лежит на открытом
+  GitHub Pages (репозиторий market-guru-app); сервер сам проверяет подпись Telegram (initData).
+  После правок: скопировать этот файл и папку face/ в market-guru-app и отправить (Push).
+  Исходники кадров: webapp/face_src (сетка 2×2 из ChatGPT), сборка кадров — выравнивание по носу, мягкие края.
 -->
 <html lang="ru">
 <head>
@@ -16,13 +20,14 @@
 <title>Market Guru</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
+  /* Всегда тёмная тема — в цвет голограммы, чтобы лицо и фон были одним целым */
   :root {
-    --bg: var(--tg-theme-bg-color, #ffffff);
-    --text: var(--tg-theme-text-color, #1c1c1e);
-    --hint: var(--tg-theme-hint-color, #8e8e93);
-    --card: var(--tg-theme-secondary-bg-color, #f2f2f7);
-    --accent: var(--tg-theme-button-color, #7b2ff7);
-    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --bg: #030b1a;
+    --text: #e6f0ff;
+    --hint: #8ea6cc;
+    --card: rgba(120, 170, 255, .10);
+    --accent: #3b82f6;
+    --glow: #67b7ff;
     --rec: #ef4444;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -30,30 +35,44 @@
   body { margin: 0; background: var(--bg); color: var(--text); overflow: hidden;
          font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
          -webkit-user-select: none; user-select: none; }
-  /* Главное на экране — лицо: оно забирает всё свободное место, остальное — компактно внизу */
-  main { height: 100%; max-width: 560px; margin: 0 auto; padding: 4px 12px 10px;
+  #bg, #fx { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #bg { z-index: 0; }
+  #fx { z-index: 2; }
+  main { position: relative; z-index: 1; height: 100%; max-width: 560px; margin: 0 auto; padding: 0 12px 10px;
          display: flex; flex-direction: column; align-items: center; }
   .stage { flex: 1; width: 100%; display: flex; align-items: center; justify-content: center; min-height: 0; }
-  svg { width: 100%; height: 100%; overflow: visible; }
-  .status { min-height: 20px; text-align: center; font-size: 15px; font-weight: 600; margin: 2px 0 0; }
+  /* Лицо: квадрат на всё свободное место; края мягко растворяются в фоне */
+  .face { position: relative; height: 100%; max-width: 100%; aspect-ratio: 1 / 1; will-change: transform, filter;
+          -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 47%, #000 58%, transparent 99%);
+          mask-image: radial-gradient(ellipse 50% 50% at 50% 47%, #000 58%, transparent 99%); }
+  .face img { position: absolute; display: block; pointer-events: none; }
+  .face .base { inset: 0; width: 100%; height: 100%; }
+  /* Накладки — координаты из кадра 627×627 (рот 200,330–430,470; глаза 120,150–510,270) */
+  .face .mouth { left: 31.90%; top: 52.63%; width: 36.68%; height: 22.33%; opacity: 0; }
+  .face .eyes { left: 19.14%; top: 23.92%; width: 62.20%; height: 19.14%; opacity: 0; }
+  .status { min-height: 20px; text-align: center; font-size: 15px; font-weight: 600; margin: 2px 0 0;
+            text-shadow: 0 0 12px rgba(103, 183, 255, .5); }
   .sub { min-height: 18px; text-align: center; font-size: 12px; color: var(--hint); margin: 0 0 8px; }
-  .sub.err { color: var(--rec); }
-  .sub.ok { color: #1aa260; }
-  .mic { width: 64px; height: 64px; border-radius: 50%; border: 0; background: var(--accent);
-         color: var(--accent-text); font-size: 26px; cursor: pointer; position: relative;
-         box-shadow: 0 4px 14px rgba(123, 47, 247, .35); transition: transform .15s, background .2s, opacity .2s; }
+  .sub.err { color: #ff8a8a; }
+  .sub.ok { color: #6ee7b7; }
+  .mic { width: 64px; height: 64px; border-radius: 50%; border: 0; color: #fff; font-size: 26px; cursor: pointer;
+         background: radial-gradient(circle at 35% 30%, #60a5fa, #1d4ed8);
+         box-shadow: 0 0 22px rgba(59, 130, 246, .55), inset 0 0 10px rgba(255, 255, 255, .25);
+         transition: transform .15s, background .2s, opacity .2s; }
   .mic:active { transform: scale(.94); }
-  .mic.rec { background: var(--rec); box-shadow: 0 0 0 var(--ring, 6px) rgba(239, 68, 68, .25); }
+  .mic.rec { background: radial-gradient(circle at 35% 30%, #f87171, #b91c1c);
+             box-shadow: 0 0 0 6px rgba(239, 68, 68, .25), 0 0 22px rgba(239, 68, 68, .5); }
   .mic:disabled { opacity: .45; }
   .btn-label { margin-top: 3px; font-size: 12px; color: var(--hint); }
   /* Под лицом — одна строка ответа; нажатие — весь текст на весь экран */
-  .bubble { width: 100%; background: var(--card); border-radius: 12px; padding: 6px 10px; margin: 0 0 4px;
-            font-size: 13px; display: none; cursor: pointer; }
+  .bubble { width: 100%; background: var(--card); border: 1px solid rgba(120, 170, 255, .18); border-radius: 12px;
+            padding: 6px 10px; margin: 0 0 4px; font-size: 13px; display: none; cursor: pointer;
+            -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
   .clamp { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; -webkit-line-clamp: 1; }
   .bubble .heard { color: var(--hint); font-size: 11px; }
   .bubble .row { display: flex; align-items: baseline; gap: 8px; }
   .bubble .short { flex: 1; min-width: 0; }
-  .bubble .more { color: var(--accent); font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .bubble .more { color: var(--glow); font-size: 12px; font-weight: 600; white-space: nowrap; }
   .sheet { position: fixed; inset: 0; background: var(--bg); z-index: 10; display: none; flex-direction: column; }
   .sheet.open { display: flex; }
   .sheet-head { display: flex; justify-content: flex-end; padding: 10px 12px; border-bottom: 1px solid var(--card); }
@@ -63,104 +82,36 @@
                 white-space: pre-wrap; -webkit-user-select: text; user-select: text; }
   .sheet-body .heard { color: var(--hint); font-size: 14px; margin-bottom: 12px; }
   .controls { display: flex; align-items: center; justify-content: center; gap: 18px; }
-  /* Шаги ожидания 🎧 → 🧠 → 🔊: текущий светится и «дышит», пройденные — с галочкой-цветом */
+  .stop { width: 46px; height: 46px; border-radius: 50%; border: 1px solid rgba(120, 170, 255, .3);
+          background: var(--card); color: var(--text); font-size: 18px; cursor: pointer; display: none; }
+  .stop.show { display: block; }
+  .stop:active { transform: scale(.94); }
+  /* Шаги ожидания 🎧 → 🧠 → 🔊: текущий светится и «дышит», пройденные — зелёные */
   .steps { display: none; align-items: center; gap: 6px; margin: 2px 0 0; }
   .steps.show { display: flex; }
   .steps span { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center;
                 justify-content: center; font-size: 15px; background: var(--card); opacity: .45;
                 transition: opacity .3s, transform .3s, background .3s; }
-  .steps span.done { opacity: .9; background: #c7f9e4; }
-  .steps span.active { opacity: 1; background: #cffafe; box-shadow: 0 0 0 3px rgba(103, 232, 249, .45);
-                       animation: pulse 1s ease-in-out infinite; }
+  .steps span.done { opacity: .95; background: rgba(110, 231, 183, .25); }
+  .steps span.active { opacity: 1; background: rgba(103, 183, 255, .3); box-shadow: 0 0 0 3px rgba(103, 183, 255, .45),
+                       0 0 14px rgba(103, 183, 255, .6); animation: pulse 1s ease-in-out infinite; }
   .steps i { width: 16px; height: 2px; background: var(--card); border-radius: 1px; }
   @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.15); } }
-  .stop { width: 46px; height: 46px; border-radius: 50%; border: 0; background: var(--card); color: var(--text);
-          font-size: 18px; cursor: pointer; display: none; }
-  .stop.show { display: block; }
-  .stop:active { transform: scale(.94); }
   .note { margin-top: 6px; font-size: 11px; color: var(--hint); text-align: center; max-width: 360px; }
   .note:empty { display: none; }
-  .diag { margin-top: 2px; font-size: 9px; color: var(--hint); opacity: .5; text-align: center; }
+  .diag { margin-top: 2px; font-size: 9px; color: var(--hint); opacity: .45; text-align: center; }
 </style>
 </head>
 <body>
+<canvas id="bg"></canvas>
 <main>
   <div class="stage">
-    <svg id="scene" viewBox="0 2 300 264" aria-label="Market Guru">
-      <defs>
-        <linearGradient id="headGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="#9b6bff"/>
-          <stop offset="1" stop-color="#6a2fe0"/>
-        </linearGradient>
-        <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
-          <stop offset="0" stop-color="#67e8f9" stop-opacity=".9"/>
-          <stop offset="1" stop-color="#67e8f9" stop-opacity="0"/>
-        </radialGradient>
-        <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
-          <feGaussianBlur stdDeviation="2.2"/>
-        </filter>
-      </defs>
-
-      <ellipse cx="150" cy="252" rx="78" ry="9" fill="#000" opacity=".08" id="shadow"/>
-      <g id="waves"></g>
-
-      <g id="bot">
-        <!-- антенна -->
-        <line x1="150" y1="52" x2="150" y2="26" stroke="#6a2fe0" stroke-width="6" stroke-linecap="round"/>
-        <circle id="bulbGlow" cx="150" cy="21" r="16" fill="url(#glow)" opacity="0"/>
-        <circle id="bulb" cx="150" cy="21" r="8" fill="#c4b5fd"/>
-        <!-- уши-наушники -->
-        <circle id="earGlowL" cx="44" cy="140" r="30" fill="url(#glow)" opacity="0"/>
-        <circle id="earGlowR" cx="256" cy="140" r="30" fill="url(#glow)" opacity="0"/>
-        <rect x="32" y="112" width="26" height="56" rx="12" fill="#5520c4"/>
-        <rect x="242" y="112" width="26" height="56" rx="12" fill="#5520c4"/>
-        <!-- голова -->
-        <rect x="52" y="50" width="196" height="178" rx="64" fill="url(#headGrad)"/>
-        <rect x="64" y="60" width="172" height="40" rx="20" fill="#fff" opacity=".10"/>
-        <!-- экран-лицо -->
-        <rect x="76" y="80" width="148" height="122" rx="42" fill="#111633"/>
-        <!-- щёки -->
-        <ellipse cx="98" cy="170" rx="11" ry="6" fill="#f472b6" opacity=".35"/>
-        <ellipse cx="202" cy="170" rx="11" ry="6" fill="#f472b6" opacity=".35"/>
-        <!-- глаза -->
-        <g id="eyes">
-          <g class="eye" id="eyeL">
-            <ellipse cx="120" cy="128" rx="14" ry="18" fill="#67e8f9" filter="url(#soft)" opacity=".55"/>
-            <ellipse cx="120" cy="128" rx="13" ry="17" fill="#67e8f9"/>
-            <circle cx="125" cy="121" r="4.5" fill="#fff" opacity=".9"/>
-          </g>
-          <g class="eye" id="eyeR">
-            <ellipse cx="180" cy="128" rx="14" ry="18" fill="#67e8f9" filter="url(#soft)" opacity=".55"/>
-            <ellipse cx="180" cy="128" rx="13" ry="17" fill="#67e8f9"/>
-            <circle cx="185" cy="121" r="4.5" fill="#fff" opacity=".9"/>
-          </g>
-        </g>
-        <!-- рот: улыбка, а когда говорит — открывается -->
-        <path id="smile" d="M132 168 Q150 182 168 168" fill="none" stroke="#67e8f9" stroke-width="5" stroke-linecap="round"/>
-        <ellipse id="mouth" cx="150" cy="172" rx="16" ry="3" fill="#67e8f9" opacity="0"/>
-        <ellipse id="tongue" cx="150" cy="178" rx="9" ry="0" fill="#f472b6" opacity="0"/>
-        <!-- 🎧 распознаю: эквалайзер на месте рта — «переваривает» звук -->
-        <g id="eq" opacity="0">
-          <rect x="126" y="160" width="6" height="16" rx="3" fill="#67e8f9"/>
-          <rect x="137" y="160" width="6" height="16" rx="3" fill="#67e8f9"/>
-          <rect x="148" y="160" width="6" height="16" rx="3" fill="#67e8f9"/>
-          <rect x="159" y="160" width="6" height="16" rx="3" fill="#67e8f9"/>
-          <rect x="170" y="160" width="6" height="16" rx="3" fill="#67e8f9"/>
-        </g>
-        <!-- 🔊 готовлю голос: три точки «печатает» -->
-        <g id="dots" opacity="0">
-          <circle cx="136" cy="170" r="5" fill="#67e8f9"/>
-          <circle cx="150" cy="170" r="5" fill="#67e8f9"/>
-          <circle cx="164" cy="170" r="5" fill="#67e8f9"/>
-        </g>
-        <!-- 🧠 думаю: вокруг головы летают искры-мысли -->
-        <g id="orbit" opacity="0">
-          <circle r="11" fill="url(#glow)"/><circle r="5" fill="#fde047"/>
-          <circle r="11" fill="url(#glow)"/><circle r="5" fill="#67e8f9"/>
-          <circle r="11" fill="url(#glow)"/><circle r="5" fill="#f0abfc"/>
-        </g>
-      </g>
-    </svg>
+    <div class="face" id="face">
+      <img class="base" id="imgBase" alt="Market Guru">
+      <img class="mouth" id="imgHalf" alt="">
+      <img class="mouth" id="imgOpen" alt="">
+      <img class="eyes" id="imgEyes" alt="">
+    </div>
   </div>
 
   <div class="bubble" id="bubble">
@@ -178,6 +129,7 @@
   <div class="note" id="note"></div>
   <div class="diag" id="diag"></div>
 </main>
+<canvas id="fx"></canvas>
 <div class="sheet" id="sheet">
   <div class="sheet-head"><button class="sheet-close" id="sheetClose"></button></div>
   <div class="sheet-body"><div class="heard" id="sheetHeard"></div><div id="sheetAnswer"></div></div>
@@ -186,7 +138,10 @@
 <script>
 (() => {
   const tg = window.Telegram && window.Telegram.WebApp;
-  if (tg) { tg.ready(); tg.expand(); }
+  if (tg) {
+    tg.ready(); tg.expand();
+    try { tg.setHeaderColor("#030b1a"); tg.setBackgroundColor("#030b1a"); } catch (e) {}
+  }
 
   const params = new URLSearchParams(location.search);
   const code = params.get("lang") || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user &&
@@ -264,14 +219,20 @@
 
   const $ = (id) => document.getElementById(id);
   const el = {
-    bot: $("bot"), eyes: $("eyes"), eyeL: $("eyeL"), eyeR: $("eyeR"), smile: $("smile"), mouth: $("mouth"),
-    tongue: $("tongue"), bulb: $("bulb"), bulbGlow: $("bulbGlow"), earL: $("earGlowL"), earR: $("earGlowR"),
-    waves: $("waves"), shadow: $("shadow"), status: $("status"), sub: $("sub"), mic: $("mic"),
-    btnLabel: $("btnLabel"), note: $("note"), diag: $("diag"),
+    face: $("face"), base: $("imgBase"), half: $("imgHalf"), open: $("imgOpen"), eyes: $("imgEyes"),
+    bg: $("bg"), fx: $("fx"),
+    status: $("status"), sub: $("sub"), mic: $("mic"), btnLabel: $("btnLabel"), note: $("note"), diag: $("diag"),
     bubble: $("bubble"), heard: $("heard"), answer: $("answer"), more: $("more"), stop: $("stop"), steps: $("steps"),
-    eq: $("eq"), orbit: $("orbit"), dots: $("dots"),
     sheet: $("sheet"), sheetClose: $("sheetClose"), sheetHeard: $("sheetHeard"), sheetAnswer: $("sheetAnswer"),
   };
+
+  // Кадры лица (версия в ссылке — чтобы Telegram не держал старые картинки)
+  const V = encodeURIComponent(params.get("v") || "1");
+  el.base.src = `face/base.jpg?v=${V}`;
+  el.half.src = `face/mouth_half.webp?v=${V}`;
+  el.open.src = `face/mouth_open.webp?v=${V}`;
+  el.eyes.src = `face/eyes_closed.webp?v=${V}`;
+
   // Адрес сервера бота (через туннель). Принимаем только https — без него режим проверки.
   const API = (params.get("api") || "").startsWith("https://") ? params.get("api").replace(/\/+$/, "") : "";
 
@@ -290,7 +251,7 @@
   }
   applyLang(lang);
 
-  // Под лицом — коротко (2 строки), чтобы лицо было хорошо видно; нажатие — весь текст на весь экран.
+  // Под лицом — одна строка; нажатие — весь текст на весь экран.
   function showBubble(heard, answer) {
     const h = heard ? T.heard + "«" + heard + "»" : "";
     el.sheetHeard.dataset.text = heard || "";
@@ -532,141 +493,139 @@
     setState("idle", API ? T.againSub : T.ok, API ? "" : "ok");
   });
 
-  // ───────── анимация ─────────
-  let blinkUntil = 0, nextBlink = performance.now() + 1500;
-  let look = { x: 0, y: 0 }, lookTarget = { x: 0, y: 0 }, nextLook = 0;
-  let mouthOpen = 0;
-  const arcs = [];
-  let lastArc = 0;
+  // ───────── анимация: фон, лицо, эффекты ─────────
+  const DPR = Math.min(2, window.devicePixelRatio || 1);
+  const bgc = el.bg.getContext("2d"), fxc = el.fx.getContext("2d");
+  let VW = 0, VH = 0;
+  function resize() {
+    VW = window.innerWidth; VH = window.innerHeight;
+    for (const c of [el.bg, el.fx]) { c.width = VW * DPR; c.height = VH * DPR; }
+    bgc.setTransform(DPR, 0, 0, DPR, 0, 0);
+    fxc.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  resize();
+  window.addEventListener("resize", resize);
 
+  // Фон: медленно плывущие мерцающие частицы (как на картинке) + мягкое свечение за лицом
+  const stars = Array.from({ length: 70 }, () => ({
+    x: Math.random(), y: Math.random(), r: 0.4 + Math.random() * 1.6, s: 0.002 + Math.random() * 0.006,
+    p: Math.random() * Math.PI * 2,
+  }));
+  // Эффекты: частицы-звук (летят к лицу), искры-мысли (кружат)
+  const flow = [];
+
+  let blinkStart = -1, nextBlink = performance.now() + 1800, mouth = 0, prev = performance.now();
   function scheduleBlink(now) {
-    nextBlink = now + 2200 + Math.random() * 3800;
-    if (Math.random() < 0.2) nextBlink = now + 260;      // иногда моргает дважды
+    nextBlink = now + 2400 + Math.random() * 3600;
+    if (Math.random() < 0.18) nextBlink = now + 320;      // иногда моргает дважды
   }
 
-  function addArc(side, strength) {
-    const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    p.setAttribute("fill", "none");
-    p.setAttribute("stroke", "#67e8f9");
-    p.setAttribute("stroke-linecap", "round");
-    el.waves.appendChild(p);
-    arcs.push({ el: p, side, t: 0, s: strength });
+  function faceRect() {
+    const r = el.face.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height * 0.47, w: r.width, h: r.height };
   }
 
-  function drawArcs(dt) {
-    for (let i = arcs.length - 1; i >= 0; i--) {
-      const a = arcs[i];
-      a.t += dt / 650;
-      if (a.t >= 1) { a.el.remove(); arcs.splice(i, 1); continue; }
-      const h = 9 + a.s * 16 * (1 - a.t * 0.4);
-      const y = 140;
-      // волна летит снаружи к уху: левое ухо ~ x=32, правое ~ x=268
-      const x = a.side < 0 ? 2 + a.t * 28 : 298 - a.t * 28;
-      const sweep = a.side < 0 ? 1 : 0;
-      a.el.setAttribute("d", `M ${x} ${y - h} A ${h * 1.3} ${h * 1.3} 0 0 ${sweep} ${x} ${y + h}`);
-      a.el.setAttribute("stroke-width", (2 + a.s * 3).toFixed(1));
-      a.el.setAttribute("opacity", (Math.sin(a.t * Math.PI) * (0.45 + a.s * 0.55)).toFixed(2));
-    }
-  }
-
-  let prev = performance.now();
   function frame(now) {
     const dt = Math.min(64, now - prev); prev = now;
-    const raw = demoLevel !== null ? demoLevel * (0.6 + 0.4 * Math.abs(Math.sin(now / 90)))
+    const raw = demoLevel !== null ? demoLevel * (0.55 + 0.45 * Math.abs(Math.sin(now / 95)))
       : (state === "listening" || state === "speaking") ? readLevel() : 0;
-    level += (raw - level) * (raw > level ? 0.5 : 0.18);
+    level += (raw - level) * (raw > level ? 0.55 : 0.2);
+    const F = faceRect();
 
-    // покачивание и «дыхание»
-    const bob = Math.sin(now / 900) * 3;
-    const lean = state === "listening" ? 1.03 : 1;
-    el.bot.setAttribute("transform", `translate(150 ${140 + bob}) scale(${lean}) translate(-150 -140)`);
-    el.shadow.setAttribute("rx", (78 - bob).toFixed(1));
-
-    // куда смотрит
-    if (state === "thinking") lookTarget = { x: 9 * Math.sin(now / 700), y: -8 };   // смотрит вверх, «ищет мысль»
-    else if (state === "recognizing") lookTarget = { x: 0, y: 3 };
-    else if (state === "voicing") lookTarget = { x: 0, y: 1 };
-    else if (state === "listening") lookTarget = { x: 0, y: 2 };
-    else if (state === "speaking") lookTarget = { x: 0, y: 0 };
-    else if (now > nextLook) {
-      lookTarget = { x: (Math.random() - 0.5) * 12, y: (Math.random() - 0.5) * 6 };
-      nextLook = now + 1500 + Math.random() * 2500;
-    }
-    look.x += (lookTarget.x - look.x) * 0.12;
-    look.y += (lookTarget.y - look.y) * 0.12;
-    el.eyes.setAttribute("transform", `translate(${look.x.toFixed(2)} ${look.y.toFixed(2)})`);
-
-    // моргание
-    if (now > nextBlink) { blinkUntil = now + 140; scheduleBlink(now); }
-    const blink = now < blinkUntil ? 0.08 : (state === "listening" ? 1.08 : 1);
-    for (const [eye, cx] of [[el.eyeL, 120], [el.eyeR, 180]]) {
-      eye.setAttribute("transform", `translate(${cx} 128) scale(1 ${blink}) translate(${-cx} -128)`);
+    // фон
+    bgc.clearRect(0, 0, VW, VH);
+    const g = bgc.createRadialGradient(F.x, F.y, F.w * 0.1, F.x, F.y, Math.max(VW, VH) * 0.8);
+    const glowA = 0.22 + (state === "speaking" ? level * 0.18 : 0) + (state === "thinking" ? 0.06 * Math.sin(now / 300) : 0);
+    g.addColorStop(0, `rgba(40, 110, 220, ${glowA.toFixed(3)})`);
+    g.addColorStop(1, "rgba(3, 11, 26, 0)");
+    bgc.fillStyle = g;
+    bgc.fillRect(0, 0, VW, VH);
+    for (const s of stars) {
+      s.y -= s.s * dt / 16 * 0.15; if (s.y < -0.02) { s.y = 1.02; s.x = Math.random(); }
+      const a = 0.25 + 0.55 * Math.abs(Math.sin(now / 900 + s.p));
+      bgc.fillStyle = `rgba(140, 200, 255, ${a.toFixed(2)})`;
+      bgc.beginPath(); bgc.arc(s.x * VW, s.y * VH, s.r, 0, Math.PI * 2); bgc.fill();
     }
 
-    // рот: открывается только когда бот говорит
+    // лицо: «дыхание», свечение по состоянию
+    const breathe = Math.sin(now / 1400);
+    let bright = 1 + 0.03 * breathe;
+    if (state === "listening") bright += level * 0.22;
+    if (state === "speaking") bright += 0.04 + level * 0.12;
+    if (state === "voicing") bright += 0.06 * (0.5 + 0.5 * Math.sin(now / 160));
+    if (state === "thinking") bright += 0.05 * Math.sin(now / 260);
+    el.face.style.transform = `translateY(${(breathe * 2).toFixed(2)}px) scale(${(1 + 0.006 * breathe).toFixed(4)})`;
+    el.face.style.filter = `brightness(${bright.toFixed(3)}) drop-shadow(0 0 ${(8 + level * 18).toFixed(0)}px rgba(80,160,255,.35))`;
+
+    // рот: проявляется только когда бот говорит; «приоткрыт» → «открыт» плавно по громкости
     const target = state === "speaking" ? level : 0;
-    mouthOpen += (target - mouthOpen) * 0.45;
-    const talking = mouthOpen > 0.04;
-    const busyMouth = state === "recognizing" || state === "voicing";
-    el.smile.setAttribute("opacity", talking || busyMouth ? 0 : 1);
+    mouth += (target - mouth) * (target > mouth ? 0.5 : 0.3);
+    const halfA = Math.min(1, mouth * 2.4);
+    const openA = Math.max(0, Math.min(1, (mouth - 0.32) * 2.2));
+    el.half.style.opacity = halfA.toFixed(3);
+    el.open.style.opacity = openA.toFixed(3);
 
-    // 🎧 распознаю: эквалайзер на месте рта
-    el.eq.setAttribute("opacity", state === "recognizing" ? 1 : 0);
-    if (state === "recognizing") {
-      el.eq.querySelectorAll("rect").forEach((r, i) => {
-        const h = 6 + 18 * Math.abs(Math.sin(now / 160 + i * 0.9));
-        r.setAttribute("height", h.toFixed(1));
-        r.setAttribute("y", (168 - h / 2).toFixed(1));
-      });
+    // моргание: 170 мс, плавно закрыть и открыть
+    if (now > nextBlink && blinkStart < 0) { blinkStart = now; scheduleBlink(now); }
+    let eyesA = 0;
+    if (blinkStart >= 0) {
+      const t = (now - blinkStart) / 170;
+      if (t >= 1) blinkStart = -1; else eyesA = Math.sin(t * Math.PI);
     }
-    // 🔊 готовлю голос: три точки прыгают по очереди
-    el.dots.setAttribute("opacity", state === "voicing" ? 1 : 0);
-    if (state === "voicing") {
-      el.dots.querySelectorAll("circle").forEach((c, i) => {
-        const up = Math.max(0, Math.sin(now / 180 - i * 0.8));
-        c.setAttribute("cy", (170 - up * 8).toFixed(1));
-        c.setAttribute("opacity", (0.45 + up * 0.55).toFixed(2));
-      });
-    }
-    // 🧠 думаю: три искры летают вокруг головы (за головой — тусклее и меньше)
-    el.orbit.setAttribute("opacity", state === "thinking" ? 1 : 0);
-    if (state === "thinking") {
-      const parts = el.orbit.children;
-      for (let i = 0; i < 3; i++) {
-        const a = now / 520 + i * (Math.PI * 2 / 3);
-        const x = 150 + Math.cos(a) * 132, y = 44 + Math.sin(a) * 20;
-        const front = Math.sin(a) > 0;
-        for (const p of [parts[i * 2], parts[i * 2 + 1]]) {
-          p.setAttribute("cx", x.toFixed(1));
-          p.setAttribute("cy", y.toFixed(1));
-          p.setAttribute("opacity", front ? 1 : 0.35);
-        }
+    el.eyes.style.opacity = eyesA.toFixed(3);
+
+    // эффекты поверх
+    fxc.clearRect(0, 0, VW, VH);
+    // 🎙 слушает: частицы-звук текут снизу к лицу
+    if (state === "listening" && level > 0.04 && flow.length < 140) {
+      for (let i = 0; i < 1 + Math.round(level * 4); i++) {
+        flow.push({ x: F.x + (Math.random() - 0.5) * F.w * 0.9, y: F.y + F.h * 0.65 + Math.random() * 20,
+                    t: 0, s: 0.6 + Math.random() * 0.8, r: 1 + Math.random() * 2 * (0.5 + level) });
       }
     }
-    el.mouth.setAttribute("opacity", talking ? 1 : 0);
-    el.mouth.setAttribute("rx", (15 + mouthOpen * 7).toFixed(1));
-    el.mouth.setAttribute("ry", (2 + mouthOpen * 15).toFixed(1));
-    el.tongue.setAttribute("opacity", mouthOpen > 0.35 ? 0.9 : 0);
-    el.tongue.setAttribute("ry", (mouthOpen * 5).toFixed(1));
-    el.tongue.setAttribute("cy", (172 + mouthOpen * 9).toFixed(1));
-
-    // уши светятся и в них летят волны, когда человек говорит
-    const ear = state === "listening" ? 0.15 + level * 0.85 : 0;
-    el.earL.setAttribute("opacity", ear.toFixed(2));
-    el.earR.setAttribute("opacity", ear.toFixed(2));
-    if (state === "listening" && level > 0.06 && now - lastArc > 170 - level * 90) {
-      addArc(-1, level); addArc(1, level); lastArc = now;
+    for (let i = flow.length - 1; i >= 0; i--) {
+      const p = flow[i];
+      p.t += dt / 900 * p.s;
+      if (p.t >= 1) { flow.splice(i, 1); continue; }
+      const k = p.t * p.t;   // ускоряются к лицу
+      const x = p.x + (F.x - p.x) * k, y = p.y + (F.y + F.h * 0.08 - p.y) * k;
+      fxc.fillStyle = `rgba(120, 200, 255, ${(Math.sin(p.t * Math.PI) * 0.9).toFixed(2)})`;
+      fxc.beginPath(); fxc.arc(x, y, p.r, 0, Math.PI * 2); fxc.fill();
     }
-    drawArcs(dt);
-
-    // лампочка: мигает, когда думает; светится, когда говорит
-    let bulb = 0.15;
-    if (state === "thinking") bulb = 0.5 + 0.5 * Math.sin(now / 140);
-    else if (state === "recognizing" || state === "voicing") bulb = 0.4 + 0.3 * Math.sin(now / 260);
-    else if (state === "speaking") bulb = 0.3 + level * 0.7;
-    else if (state === "listening") bulb = 0.35;
-    el.bulbGlow.setAttribute("opacity", bulb.toFixed(2));
-    el.bulb.setAttribute("fill", bulb > 0.3 ? "#67e8f9" : "#c4b5fd");
+    // 🎧 распознаёт: светлый луч пробегает по лицу сверху вниз
+    if (state === "recognizing") {
+      const t = (now % 1300) / 1300;
+      const y = F.y - F.h * 0.4 + t * F.h * 0.8;
+      const lg = fxc.createLinearGradient(0, y - 18, 0, y + 18);
+      lg.addColorStop(0, "rgba(103,183,255,0)"); lg.addColorStop(0.5, "rgba(160,220,255,.55)");
+      lg.addColorStop(1, "rgba(103,183,255,0)");
+      fxc.fillStyle = lg;
+      fxc.fillRect(F.x - F.w * 0.32, y - 18, F.w * 0.64, 36);
+    }
+    // 🧠 думает: искры кружат вокруг головы (за головой — тусклее)
+    if (state === "thinking") {
+      for (let i = 0; i < 4; i++) {
+        const a = now / 650 + i * Math.PI / 2;
+        const x = F.x + Math.cos(a) * F.w * 0.42, y = F.y - F.h * 0.05 + Math.sin(a) * F.h * 0.1;
+        const front = Math.sin(a) > 0;
+        const rg = fxc.createRadialGradient(x, y, 0, x, y, 14);
+        rg.addColorStop(0, front ? "rgba(220,240,255,.95)" : "rgba(160,210,255,.35)");
+        rg.addColorStop(1, "rgba(103,183,255,0)");
+        fxc.fillStyle = rg;
+        fxc.beginPath(); fxc.arc(x, y, 14, 0, Math.PI * 2); fxc.fill();
+      }
+    }
+    // 🔊 готовит голос: от губ расходятся тонкие кольца
+    if (state === "voicing") {
+      for (let i = 0; i < 3; i++) {
+        const t = ((now / 1100) + i / 3) % 1;
+        fxc.strokeStyle = `rgba(140, 210, 255, ${((1 - t) * 0.6).toFixed(2)})`;
+        fxc.lineWidth = 1.5;
+        fxc.beginPath();
+        fxc.ellipse(F.x, F.y + F.h * 0.15, F.w * (0.06 + t * 0.3), F.h * (0.03 + t * 0.14), 0, 0, Math.PI * 2);
+        fxc.stroke();
+      }
+    }
 
     requestAnimationFrame(frame);
   }
