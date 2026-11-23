@@ -1,10 +1,11 @@
 <!doctype html>
 <!--
   🎙 Мини-приложение «Поговорить с Market Guru» для бота @Market_Guru_Uz_Bot.
-  Лицо-голограмма (папка face/): живое видео idle.mp4 (Hailuo, моргает и дышит) поверх картинки base.jpg
-  (+ eyes_closed.webp для моргания, если видео не загрузилось). Губы НЕ изображаем (2026-11-23: смена картинок рта
-  и видео «говорит» выглядели неестественно) — когда бот отвечает, его голос виден светом: сияние вокруг лица
-  в такт громкости и расходящиеся световые волны. Фон — тёмно-синий в цвет картинки, края лица растворяются в нём.
+  Лицо-голограмма (папка face/): картинка base.jpg рисуется на холсте; когда бот говорит, рот открывается
+  по громкости его голоса (нижняя губа и подбородок опускаются, тёмная полость и намёк на зубы — drawFace),
+  моргание — накладка eyes_closed.webp, лицо чуть «дышит». 2026-11-23 пробовали смену картинок рта и видео из
+  Hailuo — выглядело неестественно (видео прыгало на повторе), остановились на этом. Вокруг лица — мягкое сияние
+  в такт голосу. Фон — тёмно-синий в цвет картинки, края лица растворяются в нём.
   Человек говорит — к лицу текут голубые частицы-звук; распознаю — по лицу бежит луч; думаю — вокруг головы
   кружат искры; готовлю голос — лицо мерцает. Шаги 🎧 → 🧠 → 🔊 под лицом.
   Разговор: запись → сервер бота (talk_server.py, адрес в ?api=…, через туннель): /api/stt → /api/answer →
@@ -47,12 +48,8 @@
   .face { position: relative; width: 300px; height: 300px; flex: none; will-change: transform, filter;
           -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 47%, #000 58%, transparent 99%);
           mask-image: radial-gradient(ellipse 50% 50% at 50% 47%, #000 58%, transparent 99%); }
-  .face img { position: absolute; display: block; pointer-events: none; }
-  .face .base { inset: 0; width: 100%; height: 100%; }
+  .face canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
   /* Накладки — координаты из кадра 627×627 (рот 200,330–430,470; глаза 120,150–510,270) */
-  .face .eyes { left: 19.14%; top: 23.92%; width: 62.20%; height: 19.14%; opacity: 0; }
-  .face .vid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0;
-               transition: opacity .35s ease; pointer-events: none; }
   .status { min-height: 20px; text-align: center; font-size: 15px; font-weight: 600; margin: 2px 0 0;
             text-shadow: 0 0 12px rgba(103, 183, 255, .5); }
   .sub { min-height: 18px; text-align: center; font-size: 12px; color: var(--hint); margin: 0 0 8px; }
@@ -110,10 +107,8 @@
 <main>
   <div class="stage">
     <div class="face" id="face">
-      <img class="base" id="imgBase" alt="Market Guru">
-      <img class="eyes" id="imgEyes" alt="">
-      <!-- Живое видео (Hailuo): моргает и дышит, по кругу. Пока не загрузилось — картинки выше. -->
-      <video class="vid" id="vIdle" muted playsinline autoplay preload="auto"></video>
+      <!-- Лицо рисуется на холсте: картинка + рот, который открывается по голосу, + моргание -->
+      <canvas id="faceCanvas" aria-label="Market Guru"></canvas>
     </div>
   </div>
 
@@ -222,7 +217,7 @@
 
   const $ = (id) => document.getElementById(id);
   const el = {
-    face: $("face"), base: $("imgBase"), eyes: $("imgEyes"),
+    face: $("face"), faceCanvas: $("faceCanvas"),
     bg: $("bg"), fx: $("fx"),
     status: $("status"), sub: $("sub"), mic: $("mic"), btnLabel: $("btnLabel"), note: $("note"), diag: $("diag"),
     bubble: $("bubble"), heard: $("heard"), answer: $("answer"), more: $("more"), stop: $("stop"), steps: $("steps"),
@@ -231,18 +226,54 @@
 
   // Кадры лица (версия в ссылке — чтобы Telegram не держал старые картинки)
   const V = encodeURIComponent(params.get("v") || "1");
-  el.base.src = `face/base.jpg?v=${V}`;
-  el.eyes.src = `face/eyes_closed.webp?v=${V}`;
+  const imgBase = new Image(), imgEyes = new Image();
+  imgBase.src = `face/base.jpg?v=${V}`;
+  imgEyes.src = `face/eyes_closed.webp?v=${V}`;
 
-  // Живое видео лица (Hailuo): моргает и дышит, крутится всегда. Не загрузилось — картинка с морганием.
-  // Губы не изображаем (не совпадают со словами и выглядят неестественно) — когда отвечает, от лица идут свет и волны.
-  const vIdle = $("vIdle");
-  const vids = { idle: false };
-  vIdle.addEventListener("canplay", () => { vids.idle = true; vIdle.play().catch(() => {}); }, { once: true });
-  vIdle.src = `face/idle.mp4?v=${V}`;
-  // Бесшовный повтор: последний кадр видео ≠ первому. Перед концом видео плавно уходит в картинку base.jpg
-  // (это и есть его первый кадр), а после перезапуска с начала так же плавно возвращается.
-  vIdle.addEventListener("ended", () => { vIdle.currentTime = 0; vIdle.play().catch(() => {}); });
+  // ───────── рот по голосу (рисуем на холсте, без видео) ─────────
+  // Картинка 627×627. Линия смыкания губ — улыбка: от x=245 до x=388, середина (315; 401) — найдена по картинке.
+  // Когда бот говорит, по громкости голоса: нижняя губа и подбородок плавно опускаются (полоса под линией губ
+  // сжимается вниз), верхняя губа чуть поднимается, между ними — тёмная полость рта и намёк на зубы.
+  const SRC = 627, MOUTH_X0 = 242, MOUTH_X1 = 390, MOUTH_CX = 315, MOUTH_HALF = 74;
+  const seamY = (x) => 401 - 0.00286 * (x - MOUTH_CX) * (x - MOUTH_CX);
+  const MAX_DROP = 17, MAX_LIFT = 4, LOWER = 74, UPPER = 26, STEP = 2;
+  const fctx = el.faceCanvas.getContext("2d");
+  function drawFace(open, blink) {
+    const c = el.faceCanvas, W = c.width;
+    if (!W || !imgBase.complete || !imgBase.naturalWidth) return;
+    const k = W / SRC;
+    fctx.drawImage(imgBase, 0, 0, W, W);
+    if (open > 0.015) {
+      for (let x = MOUTH_X0; x < MOUTH_X1; x += STEP) {
+        const t = (x + STEP / 2 - MOUTH_CX) / MOUTH_HALF;
+        const p = Math.pow(Math.max(0, 1 - t * t), 0.7);     // в середине рот открыт больше, к уголкам — меньше
+        const drop = open * MAX_DROP * p, lift = open * MAX_LIFT * p;
+        if (drop < 0.25) continue;
+        const sy = seamY(x + STEP / 2);
+        // нижняя губа и подбородок: полоса [sy; sy+LOWER] рисуется в [sy+drop; sy+LOWER]
+        fctx.drawImage(imgBase, x, sy, STEP, LOWER, x * k, (sy + drop) * k, STEP * k + 0.6, (LOWER - drop) * k);
+        // верхняя губа: полоса [sy-UPPER; sy] рисуется в [sy-UPPER; sy-lift]
+        fctx.drawImage(imgBase, x, sy - UPPER, STEP, UPPER, x * k, (sy - UPPER) * k, STEP * k + 0.6, (UPPER - lift) * k);
+        // полость рта между губами
+        const gTop = (sy - lift) * k, gH = (drop + lift) * k;
+        const grd = fctx.createLinearGradient(0, gTop, 0, gTop + gH);
+        grd.addColorStop(0, "rgba(10, 14, 38, 0.96)");
+        grd.addColorStop(1, "rgba(28, 16, 44, 0.96)");
+        fctx.fillStyle = grd;
+        fctx.fillRect(x * k, gTop, STEP * k + 0.6, gH + 0.5);
+        // намёк на верхние зубы, когда рот открыт сильнее
+        if (open > 0.35 && Math.abs(t) < 0.62) {
+          fctx.fillStyle = `rgba(205, 225, 255, ${((open - 0.35) * 0.9 * (1 - Math.abs(t))).toFixed(3)})`;
+          fctx.fillRect(x * k, gTop, STEP * k + 0.6, Math.min(gH * 0.32, 4 * k));
+        }
+      }
+    }
+    if (blink > 0.01 && imgEyes.complete && imgEyes.naturalWidth) {
+      fctx.globalAlpha = blink;
+      fctx.drawImage(imgEyes, 120 * k, 150 * k, 390 * k, 120 * k);   // накладка глаз: 120,150–510,270
+      fctx.globalAlpha = 1;
+    }
+  }
 
   // Адрес сервера бота (через туннель). Принимаем только https — без него режим проверки.
   const API = (params.get("api") || "").startsWith("https://") ? params.get("api").replace(/\/+$/, "") : "";
@@ -522,6 +553,8 @@
   function fitFace() {
     const side = Math.max(120, Math.floor(Math.min(stage.clientWidth, stage.clientHeight)));
     el.face.style.width = el.face.style.height = side + "px";
+    const px = Math.round(side * DPR);
+    if (el.faceCanvas.width !== px) el.faceCanvas.width = el.faceCanvas.height = px;
   }
   fitFace();
   window.addEventListener("resize", fitFace);
@@ -535,7 +568,7 @@
   // Эффекты: частицы-звук (летят к лицу), искры-мысли (кружат)
   const flow = [];
 
-  let blinkStart = -1, nextBlink = performance.now() + 1800, speakGlow = 0, prev = performance.now();
+  let blinkStart = -1, nextBlink = performance.now() + 1800, speakGlow = 0, mouthOpen = 0, prev = performance.now();
   const rings = [];       // 🔊 говорит: световые волны от лица в такт голосу
   let lastRing = 0;
   function scheduleBlink(now) {
@@ -580,12 +613,11 @@
     el.face.style.transform = `translateY(${(breathe * 2).toFixed(2)}px) scale(${(1 + 0.006 * breathe).toFixed(4)})`;
     el.face.style.filter = `brightness(${bright.toFixed(3)}) drop-shadow(0 0 ${(8 + level * 18).toFixed(0)}px rgba(80,160,255,.35))`;
 
-    // Живое видео лица (моргает, дышит) — всегда; губы не изображаем: «говорит» свет и волны (ниже)
-    const nearEnd = vIdle.duration && vIdle.currentTime > vIdle.duration - 0.45;
-    vIdle.style.opacity = vids.idle && !nearEnd ? "1" : "0";
-    if (vids.idle && vIdle.paused && !document.hidden) vIdle.play().catch(() => {});
     const voice = state === "speaking" ? level : 0;
     speakGlow += (voice - speakGlow) * (voice > speakGlow ? 0.45 : 0.12);
+    // рот: быстро открывается на слоге, чуть медленнее закрывается — как у живого человека
+    const mouthTarget = Math.max(0, Math.min(1, (voice - 0.06) * 1.7));
+    mouthOpen += (mouthTarget - mouthOpen) * (mouthTarget > mouthOpen ? 0.55 : 0.3);
 
     // моргание: 170 мс, плавно закрыть и открыть
     if (now > nextBlink && blinkStart < 0) { blinkStart = now; scheduleBlink(now); }
@@ -594,7 +626,7 @@
       const t = (now - blinkStart) / 170;
       if (t >= 1) blinkStart = -1; else eyesA = Math.sin(t * Math.PI);
     }
-    el.eyes.style.opacity = eyesA.toFixed(3);
+    drawFace(mouthOpen, eyesA);
 
     // эффекты поверх
     fxc.clearRect(0, 0, VW, VH);
@@ -655,11 +687,11 @@
     if (state === "speaking" || speakGlow > 0.02) {
       const halo = fxc.createRadialGradient(F.x, F.y + F.h * 0.05, F.w * 0.28, F.x, F.y + F.h * 0.05, F.w * 0.62);
       halo.addColorStop(0, "rgba(90, 170, 255, 0)");
-      halo.addColorStop(0.55, `rgba(110, 190, 255, ${(speakGlow * 0.35).toFixed(3)})`);
+      halo.addColorStop(0.55, `rgba(110, 190, 255, ${(speakGlow * 0.22).toFixed(3)})`);
       halo.addColorStop(1, "rgba(90, 170, 255, 0)");
       fxc.fillStyle = halo;
       fxc.fillRect(F.x - F.w, F.y - F.h, F.w * 2, F.h * 2);
-      if (state === "speaking" && speakGlow > 0.12 && now - lastRing > 260 - speakGlow * 140) {
+      if (state === "speaking" && speakGlow > 0.25 && now - lastRing > 520 - speakGlow * 160) {
         rings.push({ t: 0, s: speakGlow });
         lastRing = now;
       }
@@ -669,7 +701,7 @@
       r.t += dt / 1400;
       if (r.t >= 1) { rings.splice(i, 1); continue; }
       const rx = F.w * (0.34 + r.t * 0.32), ry = F.h * (0.42 + r.t * 0.3);
-      fxc.strokeStyle = `rgba(150, 215, 255, ${((1 - r.t) * (0.25 + r.s * 0.5)).toFixed(3)})`;
+      fxc.strokeStyle = `rgba(150, 215, 255, ${((1 - r.t) * (0.12 + r.s * 0.25)).toFixed(3)})`;
       fxc.lineWidth = 1 + r.s * 2.5 * (1 - r.t);
       fxc.beginPath();
       fxc.ellipse(F.x, F.y + F.h * 0.03, rx, ry, 0, 0, Math.PI * 2);
