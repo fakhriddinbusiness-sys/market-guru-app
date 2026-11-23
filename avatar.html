@@ -1,9 +1,10 @@
 <!doctype html>
 <!--
   🎙 Мини-приложение «Поговорить с Market Guru» для бота @Market_Guru_Uz_Bot.
-  Лицо-голограмма (картинки из ChatGPT, папка face/): основа с закрытым ртом + накладки «рот приоткрыт»,
-  «рот открыт», «глаза закрыты». Когда бот говорит, накладки рта плавно проявляются по громкости его голоса;
-  моргает само. Фон — тёмно-синий в цвет картинки, края лица растворяются в нём, вокруг плавают частицы.
+  Лицо-голограмма (папка face/): живое видео idle.mp4 (Hailuo, моргает и дышит) поверх картинки base.jpg
+  (+ eyes_closed.webp для моргания, если видео не загрузилось). Губы НЕ изображаем (2026-11-23: смена картинок рта
+  и видео «говорит» выглядели неестественно) — когда бот отвечает, его голос виден светом: сияние вокруг лица
+  в такт громкости и расходящиеся световые волны. Фон — тёмно-синий в цвет картинки, края лица растворяются в нём.
   Человек говорит — к лицу текут голубые частицы-звук; распознаю — по лицу бежит луч; думаю — вокруг головы
   кружат искры; готовлю голос — лицо мерцает. Шаги 🎧 → 🧠 → 🔊 под лицом.
   Разговор: запись → сервер бота (talk_server.py, адрес в ?api=…, через туннель): /api/stt → /api/answer →
@@ -49,7 +50,6 @@
   .face img { position: absolute; display: block; pointer-events: none; }
   .face .base { inset: 0; width: 100%; height: 100%; }
   /* Накладки — координаты из кадра 627×627 (рот 200,330–430,470; глаза 120,150–510,270) */
-  .face .mouth { left: 31.90%; top: 52.63%; width: 36.68%; height: 22.33%; opacity: 0; }
   .face .eyes { left: 19.14%; top: 23.92%; width: 62.20%; height: 19.14%; opacity: 0; }
   .face .vid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0;
                transition: opacity .35s ease; pointer-events: none; }
@@ -111,12 +111,9 @@
   <div class="stage">
     <div class="face" id="face">
       <img class="base" id="imgBase" alt="Market Guru">
-      <img class="mouth" id="imgHalf" alt="">
-      <img class="mouth" id="imgOpen" alt="">
       <img class="eyes" id="imgEyes" alt="">
-      <!-- Живое видео (Hailuo): «молчит» и «говорит» по кругу. Пока видео не загрузилось — картинки выше. -->
-      <video class="vid" id="vIdle" muted loop playsinline preload="auto"></video>
-      <video class="vid" id="vTalk" muted loop playsinline preload="auto"></video>
+      <!-- Живое видео (Hailuo): моргает и дышит, по кругу. Пока не загрузилось — картинки выше. -->
+      <video class="vid" id="vIdle" muted playsinline autoplay preload="auto"></video>
     </div>
   </div>
 
@@ -225,7 +222,7 @@
 
   const $ = (id) => document.getElementById(id);
   const el = {
-    face: $("face"), base: $("imgBase"), half: $("imgHalf"), open: $("imgOpen"), eyes: $("imgEyes"),
+    face: $("face"), base: $("imgBase"), eyes: $("imgEyes"),
     bg: $("bg"), fx: $("fx"),
     status: $("status"), sub: $("sub"), mic: $("mic"), btnLabel: $("btnLabel"), note: $("note"), diag: $("diag"),
     bubble: $("bubble"), heard: $("heard"), answer: $("answer"), more: $("more"), stop: $("stop"), steps: $("steps"),
@@ -235,31 +232,17 @@
   // Кадры лица (версия в ссылке — чтобы Telegram не держал старые картинки)
   const V = encodeURIComponent(params.get("v") || "1");
   el.base.src = `face/base.jpg?v=${V}`;
-  el.half.src = `face/mouth_half.webp?v=${V}`;
-  el.open.src = `face/mouth_open.webp?v=${V}`;
   el.eyes.src = `face/eyes_closed.webp?v=${V}`;
 
-  // Живое видео: «молчит» крутится всегда, «говорит» — пока звучит ответ. Не загрузилось — остаются картинки.
-  const vIdle = $("vIdle"), vTalk = $("vTalk");
-  const vids = { idle: false, talk: false };
+  // Живое видео лица (Hailuo): моргает и дышит, крутится всегда. Не загрузилось — картинка с морганием.
+  // Губы не изображаем (не совпадают со словами и выглядят неестественно) — когда отвечает, от лица идут свет и волны.
+  const vIdle = $("vIdle");
+  const vids = { idle: false };
   vIdle.addEventListener("canplay", () => { vids.idle = true; vIdle.play().catch(() => {}); }, { once: true });
-  vTalk.addEventListener("canplay", () => { vids.talk = true; }, { once: true });
   vIdle.src = `face/idle.mp4?v=${V}`;
-  vTalk.src = `face/talk.mp4?v=${V}`;
-  let talkOn = false, talkPauseTimer = null;
-  function showTalkVideo(on) {
-    if (on === talkOn) return;
-    talkOn = on;
-    clearTimeout(talkPauseTimer);
-    if (on) {
-      vTalk.currentTime = Math.random() * Math.max(0, (vTalk.duration || 1) - 1);   // каждый раз с разного места
-      vTalk.play().catch(() => {});
-      vTalk.style.opacity = "1";
-    } else {
-      vTalk.style.opacity = "0";
-      talkPauseTimer = setTimeout(() => vTalk.pause(), 400);   // после плавного исчезновения
-    }
-  }
+  // Бесшовный повтор: последний кадр видео ≠ первому. Перед концом видео плавно уходит в картинку base.jpg
+  // (это и есть его первый кадр), а после перезапуска с начала так же плавно возвращается.
+  vIdle.addEventListener("ended", () => { vIdle.currentTime = 0; vIdle.play().catch(() => {}); });
 
   // Адрес сервера бота (через туннель). Принимаем только https — без него режим проверки.
   const API = (params.get("api") || "").startsWith("https://") ? params.get("api").replace(/\/+$/, "") : "";
@@ -552,7 +535,9 @@
   // Эффекты: частицы-звук (летят к лицу), искры-мысли (кружат)
   const flow = [];
 
-  let blinkStart = -1, nextBlink = performance.now() + 1800, mouth = 0, prev = performance.now();
+  let blinkStart = -1, nextBlink = performance.now() + 1800, speakGlow = 0, prev = performance.now();
+  const rings = [];       // 🔊 говорит: световые волны от лица в такт голосу
+  let lastRing = 0;
   function scheduleBlink(now) {
     nextBlink = now + 2400 + Math.random() * 3600;
     if (Math.random() < 0.18) nextBlink = now + 320;      // иногда моргает дважды
@@ -589,25 +574,18 @@
     const breathe = Math.sin(now / 1400);
     let bright = 1 + 0.03 * breathe;
     if (state === "listening") bright += level * 0.22;
-    if (state === "speaking") bright += 0.04 + level * 0.12;
+    if (state === "speaking") bright += 0.04 + speakGlow * 0.16;
     if (state === "voicing") bright += 0.06 * (0.5 + 0.5 * Math.sin(now / 160));
     if (state === "thinking") bright += 0.05 * Math.sin(now / 260);
     el.face.style.transform = `translateY(${(breathe * 2).toFixed(2)}px) scale(${(1 + 0.006 * breathe).toFixed(4)})`;
     el.face.style.filter = `brightness(${bright.toFixed(3)}) drop-shadow(0 0 ${(8 + level * 18).toFixed(0)}px rgba(80,160,255,.35))`;
 
-    // рот: проявляется только когда бот говорит; «приоткрыт» → «открыт» плавно по громкости
-    const target = state === "speaking" ? level : 0;
-    mouth += (target - mouth) * (target > mouth ? 0.5 : 0.3);
-    const halfA = Math.min(1, mouth * 2.4);
-    const openA = Math.max(0, Math.min(1, (mouth - 0.32) * 2.2));
-    el.half.style.opacity = halfA.toFixed(3);
-    el.open.style.opacity = openA.toFixed(3);
-
-    // Видео: говорит — видео «говорит»; иначе — «молчит». Нет видео «говорит» — рот на картинках (видео прячем).
-    const talkingNow = state === "speaking";
-    showTalkVideo(talkingNow && vids.talk);
-    vIdle.style.opacity = vids.idle && !(talkingNow && !vids.talk) ? "1" : "0";
+    // Живое видео лица (моргает, дышит) — всегда; губы не изображаем: «говорит» свет и волны (ниже)
+    const nearEnd = vIdle.duration && vIdle.currentTime > vIdle.duration - 0.45;
+    vIdle.style.opacity = vids.idle && !nearEnd ? "1" : "0";
     if (vids.idle && vIdle.paused && !document.hidden) vIdle.play().catch(() => {});
+    const voice = state === "speaking" ? level : 0;
+    speakGlow += (voice - speakGlow) * (voice > speakGlow ? 0.45 : 0.12);
 
     // моргание: 170 мс, плавно закрыть и открыть
     if (now > nextBlink && blinkStart < 0) { blinkStart = now; scheduleBlink(now); }
@@ -672,6 +650,30 @@
         fxc.fillStyle = rg;
         fxc.beginPath(); fxc.arc(x, y, 14, 0, Math.PI * 2); fxc.fill();
       }
+    }
+    // 🔊 говорит: голос виден светом — мягкое сияние вокруг лица дышит в такт, от лица расходятся световые волны
+    if (state === "speaking" || speakGlow > 0.02) {
+      const halo = fxc.createRadialGradient(F.x, F.y + F.h * 0.05, F.w * 0.28, F.x, F.y + F.h * 0.05, F.w * 0.62);
+      halo.addColorStop(0, "rgba(90, 170, 255, 0)");
+      halo.addColorStop(0.55, `rgba(110, 190, 255, ${(speakGlow * 0.35).toFixed(3)})`);
+      halo.addColorStop(1, "rgba(90, 170, 255, 0)");
+      fxc.fillStyle = halo;
+      fxc.fillRect(F.x - F.w, F.y - F.h, F.w * 2, F.h * 2);
+      if (state === "speaking" && speakGlow > 0.12 && now - lastRing > 260 - speakGlow * 140) {
+        rings.push({ t: 0, s: speakGlow });
+        lastRing = now;
+      }
+    }
+    for (let i = rings.length - 1; i >= 0; i--) {
+      const r = rings[i];
+      r.t += dt / 1400;
+      if (r.t >= 1) { rings.splice(i, 1); continue; }
+      const rx = F.w * (0.34 + r.t * 0.32), ry = F.h * (0.42 + r.t * 0.3);
+      fxc.strokeStyle = `rgba(150, 215, 255, ${((1 - r.t) * (0.25 + r.s * 0.5)).toFixed(3)})`;
+      fxc.lineWidth = 1 + r.s * 2.5 * (1 - r.t);
+      fxc.beginPath();
+      fxc.ellipse(F.x, F.y + F.h * 0.03, rx, ry, 0, 0, Math.PI * 2);
+      fxc.stroke();
     }
     // 🔊 готовит голос: от губ расходятся тонкие кольца
     if (state === "voicing") {
